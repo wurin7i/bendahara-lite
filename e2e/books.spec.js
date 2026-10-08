@@ -172,7 +172,15 @@ test.describe('tanpa sinkronisasi Drive, aplikasi tetap berfungsi', () => {
     await expect(page.getByRole('navigation', { name: 'Menu utama' })).toBeVisible();
 
     await nav(page, 'Pengaturan');
-    await expect(page.getByText('Google Drive API belum diaktifkan di proyek Google Cloud Anda')).toBeVisible();
+    await expect(page.getByText('Google Drive API belum aktif')).toBeVisible();
+    // pesan asli Google ikut tampil, termasuk nomor proyek yang dimaksud
+    await expect(page.getByText(/has not been used in project 123456/)).toBeVisible();
     await expect(picker(page).locator('option:checked')).toHaveText('Kas Bendahara'); // tetap berfungsi
+
+    // setelah API diaktifkan, "Coba lagi" memulihkan sinkronisasi tanpa keluar-masuk
+    await page.evaluate(() => window.__fakeGoogle.setDriveApiEnabled(true));
+    await page.getByRole('button', { name: 'Coba lagi' }).click();
+    await expect(page.getByText('Daftar buku tersimpan di akun Google Anda')).toBeVisible();
+    await expect.poll(async () => (await driveFile(page))[0]?.content?.books?.[0]?.title).toBe('Kas Bendahara');
   });
 });

@@ -302,6 +302,23 @@ export function AppProvider({ children }) {
         }
         return connect(id, auth.getSession().user);
       },
+      /** Muat ulang daftar buku dari Drive (mis. setelah Drive API diaktifkan atau izin diberikan). */
+      async refreshBooks() {
+        const user = auth.getSession()?.user;
+        if (!user) return;
+        try {
+          const { registry: reg, status } = await registry.load(user.email);
+          setBooks(reg.books);
+          setDriveStatus(status);
+          if (status.state === 'ok') {
+            toast('Tersinkron dengan Google Drive');
+            // pastikan buku aktif ikut tercatat di Drive
+            remember(user, sheetIdRef.current, sheetTitleRef.current);
+          }
+        } catch (err) {
+          toast(friendlyMessage(err), 'error');
+        }
+      },
       /** Hapus dari daftar saja; spreadsheet-nya sendiri tidak disentuh. Buku aktif tidak bisa dihapus dari daftar. */
       async forgetBook(id) {
         if (id === sheetIdRef.current) return;

@@ -61,12 +61,14 @@ export function removeBook(reg, id) {
  *  ok | no-scope (izin tidak diberikan) | api-disabled (Drive API belum diaktifkan) | error (sementara gagal)
  */
 export function classifyDriveError(err) {
+  // Pesan asli Google ikut dibawa: memuat mis. nomor proyek Cloud, sehingga penyebabnya bisa dilacak pengguna.
+  const detail = err instanceof ApiError ? `${err.status}${err.reason ? ` ${err.reason}` : ''}: ${err.message}`.slice(0, 400) : undefined;
   if (err instanceof ApiError && err.status === 403) {
     return /has not been used|is disabled|accessNotConfigured/i.test(`${err.message} ${err.reason}`)
-      ? { state: 'api-disabled' }
-      : { state: 'no-scope' };
+      ? { state: 'api-disabled', detail }
+      : { state: 'no-scope', detail };
   }
-  return { state: 'error', message: friendlyMessage(err) };
+  return { state: 'error', message: friendlyMessage(err), detail };
 }
 
 /**

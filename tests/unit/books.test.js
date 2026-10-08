@@ -92,6 +92,13 @@ describe('classifyDriveError', () => {
     expect(classifyDriveError(new ApiError('Backend error', { status: 503 })).state).toBe('error');
     expect(classifyDriveError(new Error('putus')).state).toBe('error');
   });
+
+  it('membawa pesan asli Google (mis. nomor proyek) agar penyebabnya bisa dilacak', () => {
+    const err = new ApiError('Google Drive API has not been used in project 123456 before or it is disabled.', { status: 403, reason: 'PERMISSION_DENIED' });
+    const status = classifyDriveError(err);
+    expect(status.detail).toBe('403 PERMISSION_DENIED: Google Drive API has not been used in project 123456 before or it is disabled.');
+    expect(classifyDriveError(new ApiError('x'.repeat(1000), { status: 403 })).detail.length).toBeLessThanOrEqual(400);
+  });
 });
 
 /* ---------- layanan: Drive palsu + penyimpanan browser palsu ---------- */

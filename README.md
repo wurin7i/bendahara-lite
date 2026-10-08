@@ -156,6 +156,7 @@ ada dengan `CHROMIUM_PATH=/path/ke/chrome npm run test:e2e`.
 | `Google Sheets API belum diaktifkan` | Aktifkan *Google Sheets API* pada proyek yang sama dengan Client ID (langkah 2). |
 | Tombol "Masuk" diganti pesan *Client ID belum diatur* | `VITE_GOOGLE_CLIENT_ID` kosong. Isi di `.env`, lalu **restart** `npm run dev` (nilai dibaca saat start). |
 | Pemberitahuan *"Daftar buku hanya diingat di browser ini"* | Izin Drive tidak dicentang saat masuk (keluar lalu masuk lagi dan centang), atau **Google Drive API belum diaktifkan** di proyek Cloud (langkah 2). Aplikasi tetap berfungsi; hanya daftar buku yang tidak ikut ke perangkat lain. |
+| Pemberitahuan *"Google Drive API belum aktif"* padahal sudah diaktifkan | Baca **"Pesan dari Google"** di notifikasi: memuat nomor proyek (`project 123456…`). Nomor itu harus sama dengan awalan Client ID Anda (`123456…-xxxx.apps.googleusercontent.com`). Bila beda, Drive API Anda aktifkan di proyek lain. Bila sama, mungkin baru diaktifkan (tunggu beberapa menit lalu klik **Coba lagi**). |
 | Popup login tidak muncul | Browser memblokir popup untuk situs ini; izinkan lalu klik **Masuk dengan Google** lagi. |
 
 ## Batasan & catatan penting
