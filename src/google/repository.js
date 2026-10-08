@@ -23,8 +23,10 @@ export function parseSpreadsheetId(input) {
 
 /** Buat spreadsheet baru berisi semua sheet aplikasi (header ditulis oleh initialize()). */
 export async function createSpreadsheet(api, title) {
+  // Hanya judul dan sheet yang dikirim. Locale/zona waktu sengaja tidak diatur: aplikasi menulis nilai
+  // mentah (RAW) sehingga tidak berpengaruh, dan Google menolak locale yang tidak didukung (mis. "id_ID").
   const created = await api.create({
-    properties: { title, locale: 'id_ID', timeZone: 'Asia/Jakarta' },
+    properties: { title },
     sheets: TABLE_KEYS.map((key) => ({
       properties: { title: TABLES[key].sheet, gridProperties: { frozenRowCount: 1 } },
     })),

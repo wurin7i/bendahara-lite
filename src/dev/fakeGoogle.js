@@ -155,6 +155,11 @@ export function createFakeSheetsServer({ persistKey = null, latency = 0 } = {}) 
     const path = url.pathname.replace(/^\/v4\/spreadsheets/, '');
 
     if (method === 'POST' && path === '') {
+      // Google asli menolak locale yang tidak didukung (galat ini dilaporkan pengguna untuk "id_ID").
+      const locale = body?.properties?.locale;
+      if (locale === 'id_ID') {
+        throw httpError(400, `Invalid properties: Unsupported locale: ${locale}`, 'INVALID_ARGUMENT');
+      }
       db.counter += 1;
       const id = `fakeSheet${String(db.counter).padStart(3, '0')}${'x'.repeat(24)}`;
       const ss = { title: body?.properties?.title ?? 'Untitled spreadsheet', sheets: [], acl: { [email]: 'owner' } };

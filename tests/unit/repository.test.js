@@ -63,6 +63,18 @@ describe('fake A1 parser', () => {
 });
 
 describe('createSpreadsheet + initialize', () => {
+  it('tidak mengirim locale/zona waktu (Google menolak "id_ID")', async () => {
+    const { server, api } = setup();
+    await createSpreadsheet(api, 'Kas');
+    const create = server.calls.find((c) => c.method === 'POST' && c.path === '/v4/spreadsheets');
+    expect(create.body.properties).toEqual({ title: 'Kas' });
+
+    // dan server memang menolaknya seperti Google asli
+    const err = await api.create({ properties: { title: 'x', locale: 'id_ID' } }).catch((e) => e);
+    expect(err.status).toBe(400);
+    expect(err.message).toBe('Invalid properties: Unsupported locale: id_ID');
+  });
+
   it('membuat semua sheet dan menulis header + info', async () => {
     const { server, spreadsheetId } = await freshRepo();
     expect(server.sheetTitles(spreadsheetId)).toEqual(Object.values(TABLES).map((t) => t.sheet));
