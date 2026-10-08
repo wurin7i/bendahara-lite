@@ -8,9 +8,9 @@ export async function freezeClock(page) {
 export async function loginAndCreateSheet(page, title = 'Kas Uji') {
   await page.goto('/');
   await page.getByRole('button', { name: 'Masuk dengan Google' }).click();
-  await expect(page.getByRole('heading', { name: 'Pilih spreadsheet' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Pilih buku kas' })).toBeVisible();
   await page.getByLabel('Nama spreadsheet').fill(title);
-  await page.getByRole('button', { name: 'Buat spreadsheet baru' }).click();
+  await page.getByRole('button', { name: 'Buat buku baru' }).click();
   await expect(page.getByRole('navigation', { name: 'Menu utama' })).toBeVisible();
 }
 
@@ -59,4 +59,21 @@ export async function pay(page, member, monthLabel, amount) {
   if (amount !== undefined) await dialog.getByLabel('Jumlah', { exact: true }).fill(String(amount));
   await dialog.getByRole('button', { name: 'Simpan pembayaran' }).click();
   await expect(dialog).toBeHidden();
+}
+
+/**
+ * Tunggu penulisan daftar buku ke Drive (berjalan di latar setelah buku dibuka) selesai.
+ * Penting bagi tes yang menyisipkan kegagalan: kalau penulisan masih berjalan, kegagalan itu termakan olehnya.
+ */
+export async function waitForDriveSynced(page, bookTitle, email = 'bendahara.demo@example.com') {
+  await expect
+    .poll(
+      () =>
+        page.evaluate((e) => {
+          const file = window.__fakeGoogle.dumpDrive(e)[0]?.content;
+          return file?.books?.find((b) => b.id === file.current)?.title ?? null;
+        }, email),
+      { message: `Drive belum memuat buku aktif "${bookTitle}"` },
+    )
+    .toBe(bookTitle);
 }

@@ -114,6 +114,7 @@ textarea { resize: vertical; min-height: 5rem; }
 .tabs a { padding: 0.6rem 0.9rem; text-decoration: none; color: var(--muted); font-weight: 600; border-bottom: 3px solid transparent; white-space: nowrap; }
 .tabs a:hover { color: var(--text); }
 .tabs a[aria-current='page'] { color: var(--primary); border-bottom-color: var(--primary); }
+.book-picker select { width: auto; max-width: 16rem; font-weight: 600; border-color: var(--primary); }
 .period-picker { display: flex; align-items: center; gap: 0.4rem; }
 .period-picker select { width: auto; max-width: 15rem; }
 .user-chip { display: flex; align-items: center; gap: 0.5rem; }

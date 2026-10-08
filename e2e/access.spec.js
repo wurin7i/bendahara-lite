@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test';
-import { freezeClock, loginAndCreateSheet, nav } from './helpers.js';
+import { freezeClock, loginAndCreateSheet, nav, waitForDriveSynced } from './helpers.js';
 
 const DEMO_EMAIL = 'bendahara.demo@example.com';
 const STRANGER = 'orang.lain@example.com';
@@ -27,7 +27,7 @@ async function createSheetAs(page, email, title, sheets) {
 async function loginOnly(page) {
   await page.goto('/');
   await page.getByRole('button', { name: 'Masuk dengan Google' }).click();
-  await expect(page.getByRole('heading', { name: 'Pilih spreadsheet' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Pilih buku kas' })).toBeVisible();
 }
 
 test('akun tanpa izin pada spreadsheet orang lain ditolak dengan pesan jelas', async ({ page }) => {
@@ -42,8 +42,8 @@ test('akun tanpa izin pada spreadsheet orang lain ditolak dengan pesan jelas', a
   await expect(page.getByRole('navigation', { name: 'Menu utama' })).toHaveCount(0);
 
   // bisa kembali memilih spreadsheet lain
-  await page.getByRole('button', { name: 'Ganti spreadsheet' }).click();
-  await expect(page.getByRole('heading', { name: 'Pilih spreadsheet' })).toBeVisible();
+  await page.getByRole('button', { name: 'Kelola buku' }).click();
+  await expect(page.getByRole('heading', { name: 'Pilih buku kas' })).toBeVisible();
 });
 
 test('tautan berbagi ?sheet=ID didahulukan dari spreadsheet tersimpan lalu dibersihkan dari URL', async ({ page }) => {
@@ -62,7 +62,7 @@ test('URL yang bukan spreadsheet ditolak sebelum memanggil Google', async ({ pag
   await page.getByLabel('URL atau ID spreadsheet').fill('bukan url');
   await page.getByRole('button', { name: 'Hubungkan' }).click();
   await expect(page.getByText('URL atau ID spreadsheet tidak valid.')).toBeVisible();
-  await expect(page.getByRole('heading', { name: 'Pilih spreadsheet' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Pilih buku kas' })).toBeVisible();
 });
 
 test('akses baca saja: data terbaca, tetapi menyimpan ditolak dengan pesan jelas', async ({ page }) => {
@@ -131,8 +131,9 @@ test('sheet bernama sama dengan struktur lain tidak ditimpa', async ({ page }) =
 });
 
 test('Google menolak token (401) di tengah sesi: kembali ke layar masuk, bukan macet', async ({ page }) => {
-  await loginAndCreateSheet(page);
+  await loginAndCreateSheet(page, 'Kas Uji');
   await nav(page, 'Pengaturan');
+  await waitForDriveSynced(page, 'Kas Uji'); // jangan sampai 401 termakan penulisan daftar buku di latar
   await page.evaluate(() => window.__fakeGoogle.failNext(401, 'Invalid Credentials'));
   await page.getByRole('button', { name: 'Muat ulang data' }).click();
 

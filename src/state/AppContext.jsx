@@ -2,6 +2,7 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useRef, use
 import { config } from '../config.js';
 import * as auth from '../google/auth.js';
 import { AuthError, ConflictError, friendlyMessage } from '../google/errors.js';
+import { createDriveStore } from '../google/driveStore.js';
 import { createRepository, createSpreadsheet, parseSpreadsheetId } from '../google/repository.js';
 import { createSheetsApi } from '../google/sheetsApi.js';
 import { useToast } from '../components/ui.jsx';
@@ -11,6 +12,7 @@ import { newId } from '../lib/ids.js';
 import { accountStatement, buildLedgerLines } from '../lib/ledger.js';
 import { currentMonthKey } from '../lib/months.js';
 import { periodAllocations } from '../lib/selectors.js';
+import { createRegistryService, needsUpdate, removeBook, touchBook } from './books.js';
 
 auth.configureAuth(config.clientId);
 const DEFAULT_SHEET = parseSpreadsheetId(config.defaultSpreadsheetId) ?? '';
@@ -27,11 +29,10 @@ const pref = {
     try { window.localStorage.setItem(key, value); } catch { /* abaikan */ }
   },
 };
-const sheetKey = (email) => `${config.storagePrefix}.sheet.${email}`;
 const periodKey = (sheetId) => `${config.storagePrefix}.period.${sheetId}`;
 
 // Tautan berbagi: https://aplikasi/?sheet=<ID> -> dibaca sekali lalu dibersihkan dari URL.
-const sheetFromUrl = (() => {
+let pendingUrlSheet = (() => {
   try {
     const url = new URL(window.location.href);
     const id = parseSpreadsheetId(url.searchParams.get('sheet'));
@@ -44,6 +45,12 @@ const sheetFromUrl = (() => {
     return null;
   }
 })();
+// Dipakai sekali: setelah keluar lalu masuk lagi di halaman yang sama, tautan lama tidak boleh menimpa pilihan terakhir.
+const takeUrlSheet = () => {
+  const id = pendingUrlSheet;
+  pendingUrlSheet = null;
+  return id;
+};
 
 export function AppProvider({ children }) {
   const toast = useToast();
@@ -63,12 +70,34 @@ export function AppProvider({ children }) {
   const [data, setData] = useState(null);
   const [busy, setBusy] = useState(0);
   const [periodId, setPeriodId] = useState(null);
+  const [books, setBooks] = useState([]);
+  const [driveStatus, setDriveStatus] = useState(null);
+  const [setupOpen, setSetupOpen] = useState(false);
+
+  const email = session?.user?.email ?? null;
 
   const repoRef = useRef(null);
   const dataRef = useRef(null);
   const seqRef = useRef(0);
+  const sheetIdRef = useRef('');
+  const sheetTitleRef = useRef('');
+  const targetRef = useRef('');
   repoRef.current = repo;
   dataRef.current = data;
+  sheetIdRef.current = sheetId;
+
+  // Daftar buku: Drive (ikut akun) + cadangan browser. Dibuat ulang per akun karena Drive menyimpan ID berkas.
+  const registry = useMemo(
+    () =>
+      createRegistryService({
+        drive: createDriveStore({ getToken: auth.getAccessToken, onUnauthorized: auth.invalidateSession }),
+        driveEnabled: () => Boolean(auth.getSession()?.driveAppData),
+        storage: pref,
+        prefix: config.storagePrefix,
+      }),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [email],
+  );
 
   useEffect(() => auth.subscribe(setSession), []);
   useEffect(() => {
@@ -81,9 +110,27 @@ export function AppProvider({ children }) {
     setPhase('error');
   }, []);
 
+  /** Catat buku sebagai aktif (tampil seketika; penyimpanan ke Drive/browser menyusul, gagal pun tidak mengganggu). */
+  const remember = useCallback(
+    async (user, id, title) => {
+      setBooks((cur) => touchBook({ current: id, books: cur }, { id, title }).books);
+      try {
+        const { registry: reg, status } = await registry.update(user.email, (base) =>
+          needsUpdate(base, { id, title }) ? touchBook(base, { id, title }) : base,
+        );
+        setBooks(reg.books);
+        setDriveStatus(status);
+      } catch {
+        // AuthError: sesi sudah dibatalkan dan layar masuk tampil; galat Drive lain sudah ditangani layanan.
+      }
+    },
+    [registry],
+  );
+
   const connect = useCallback(
     async (id, user, { autoInit = false } = {}) => {
       const seq = ++seqRef.current;
+      targetRef.current = id;
       setPhase('loading');
       setFatal('');
       const next = createRepository({ api, spreadsheetId: id, user });
@@ -100,21 +147,30 @@ export function AppProvider({ children }) {
         }
         const loaded = await next.load();
         if (seq !== seqRef.current) return;
-        pref.set(sheetKey(user.email), id);
+        sheetTitleRef.current = state.title || '';
         setSheetId(id);
         setRepo(next);
         setData(loaded);
         setInitInfo(null);
+        setSetupOpen(false);
         setPhase('ready');
+        remember(user, id, loaded.info.org_name || state.title || '');
       } catch (err) {
-        if (seq === seqRef.current) failFatal(err);
+        if (seq !== seqRef.current || err instanceof AuthError) return; // AuthError: sesi batal -> layar masuk
+        if (repoRef.current && dataRef.current) {
+          // Gagal berpindah dari buku yang masih berfungsi: kembali ke daftar buku, jangan terdampar di layar galat.
+          toast(friendlyMessage(err), 'error');
+          setSetupOpen(true);
+          setPhase('ready');
+          return;
+        }
+        failFatal(err);
       }
     },
-    [api, failFatal],
+    [api, failFatal, remember, toast],
   );
 
   // Mulai/akhiri alur sesuai siapa yang sedang masuk.
-  const email = session?.user?.email ?? null;
   useEffect(() => {
     if (!email) {
       seqRef.current += 1;
@@ -122,15 +178,36 @@ export function AppProvider({ children }) {
       setData(null);
       setSheetId('');
       setInitInfo(null);
+      setBooks([]);
+      setDriveStatus(null);
+      setSetupOpen(false);
       setPhase('signedOut');
-      return;
+      return undefined;
     }
-    const id = sheetFromUrl || pref.get(sheetKey(email)) || DEFAULT_SHEET;
-    if (!id) {
-      setPhase('noSheet');
-      return;
-    }
-    connect(id, auth.getSession().user);
+    let cancelled = false;
+    (async () => {
+      setPhase('loading');
+      let loaded;
+      try {
+        loaded = await registry.load(email);
+      } catch (err) {
+        if (!cancelled) failFatal(err);
+        return;
+      }
+      if (cancelled) return;
+      setBooks(loaded.registry.books);
+      setDriveStatus(loaded.status);
+      // Urutan: tautan berbagi (?sheet=) > buku terakhir (Drive/browser) > bawaan konfigurasi.
+      const id = takeUrlSheet() || loaded.registry.current || DEFAULT_SHEET;
+      if (!id) {
+        setPhase('noSheet');
+        return;
+      }
+      connect(id, auth.getSession().user);
+    })();
+    return () => {
+      cancelled = true;
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [email]);
 
@@ -204,26 +281,50 @@ export function AppProvider({ children }) {
           await connect(spreadsheetId, auth.getSession().user, { autoInit: true });
         } catch (err) {
           toast(friendlyMessage(err), 'error');
-          setPhase('noSheet');
+          setPhase(dataRef.current ? 'ready' : 'noSheet'); // tetap di daftar buku, tidak kehilangan buku aktif
         }
       },
       async confirmInit() {
         if (initInfo) await connect(initInfo.id, initInfo.user, { autoInit: true });
       },
-      changeSpreadsheet() {
-        seqRef.current += 1;
-        setRepo(null);
-        setData(null);
+      /** Buka layar daftar buku (pilih / tambah / hubungkan). Buku aktif tidak terganggu sampai ada yang dipilih. */
+      openSetup() {
+        seqRef.current += 1; // batalkan sambungan yang masih berjalan
         setInitInfo(null);
-        setPhase('noSheet');
+        setSetupOpen(true);
+        setPhase(dataRef.current ? 'ready' : 'noSheet');
+      },
+      closeSetup: () => setSetupOpen(false),
+      switchBook(id) {
+        if (id === sheetIdRef.current && dataRef.current) {
+          setSetupOpen(false);
+          return Promise.resolve();
+        }
+        return connect(id, auth.getSession().user);
+      },
+      /** Hapus dari daftar saja; spreadsheet-nya sendiri tidak disentuh. Buku aktif tidak bisa dihapus dari daftar. */
+      async forgetBook(id) {
+        if (id === sheetIdRef.current) return;
+        try {
+          const { registry: reg, status } = await registry.update(auth.getSession().user.email, (base) => removeBook(base, id));
+          setBooks(reg.books);
+          setDriveStatus(status);
+          toast('Dihapus dari daftar. Spreadsheet-nya sendiri tidak dihapus.');
+        } catch (err) {
+          toast(friendlyMessage(err), 'error');
+        }
       },
       retry() {
-        const id = sheetId || pref.get(sheetKey(email)) || DEFAULT_SHEET;
+        const id = targetRef.current || sheetIdRef.current || DEFAULT_SHEET;
         if (id) connect(id, auth.getSession().user);
         else setPhase('noSheet');
       },
 
-      setOrgName: (name) => run((r) => r.upsert('info', [{ id: 'org_name', value: name.trim() }]), 'Nama disimpan'),
+      async setOrgName(name) {
+        const ok = await run((r) => r.upsert('info', [{ id: 'org_name', value: name.trim() }]), 'Nama disimpan');
+        if (ok) remember(auth.getSession().user, sheetIdRef.current, name.trim() || sheetTitleRef.current);
+        return ok;
+      },
 
       /* anggota */
       saveMember: (member) =>
@@ -319,7 +420,7 @@ export function AppProvider({ children }) {
           return r.remove('transactions', targets);
         }, 'Transaksi dihapus'),
     };
-  }, [api, connect, email, initInfo, run, sheetId, toast]);
+  }, [api, connect, initInfo, registry, remember, run, toast]);
 
   /* ---------- turunan ---------- */
   const nowMonth = currentMonthKey();
@@ -354,7 +455,8 @@ export function AppProvider({ children }) {
   // Tanpa sesi selalu tampil layar masuk, tanpa menunggu efek mengubah `phase` (menghindari satu render
   // dengan user === null saat keluar atau sesi berakhir).
   const value = {
-    phase: session ? phase : 'signedOut', fatal, loginError, initInfo, session, user: session?.user ?? null,
+    phase: session ? phase : 'signedOut', fatal, books, driveStatus, setupOpen,
+    bookTitle: books.find((b) => b.id === sheetId)?.title || data?.info?.org_name || sheetTitleRef.current, loginError, initInfo, session, user: session?.user ?? null,
     sheetId, sheetUrl: sheetId ? `https://docs.google.com/spreadsheets/d/${sheetId}/edit` : '',
     data, derived, period, selectPeriod, nowMonth, busy: busy > 0,
     orgName: data?.info?.org_name || '',

@@ -10,14 +10,17 @@ import { config } from '../config.js';
 import { AuthError } from './errors.js';
 
 export const SHEETS_SCOPE = 'https://www.googleapis.com/auth/spreadsheets';
-export const SCOPES = ['openid', 'email', 'profile', SHEETS_SCOPE];
+// Opsional: folder tersembunyi di Drive untuk mengingat daftar buku lintas perangkat (scope non-sensitif).
+// Bila pengguna tidak mencentangnya, aplikasi tetap berjalan dan hanya mengingat daftar di browser.
+export const DRIVE_APPDATA_SCOPE = 'https://www.googleapis.com/auth/drive.appdata';
+export const SCOPES = ['openid', 'email', 'profile', SHEETS_SCOPE, DRIVE_APPDATA_SCOPE];
 
 const GIS_SRC = 'https://accounts.google.com/gsi/client';
 const SESSION_KEY = `${config.storagePrefix}.session`;
 const EXPIRY_MARGIN_MS = 60_000;
 const SILENT_TIMEOUT_MS = 15_000;
 
-let session = null; // { accessToken, expiresAt, user: {email, name, picture} }
+let session = null; // { accessToken, expiresAt, user: {email, name, picture}, driveAppData: boolean }
 let tokenClient = null;
 let pending = null; // { resolve, reject } untuk permintaan token yang sedang berjalan
 let inflight = null; // promise permintaan token agar tidak ada dua popup sekaligus
@@ -146,7 +149,12 @@ function requestToken(clientId, { prompt, hint, timeoutMs } = {}) {
     }
     const accessToken = response.access_token;
     const user = session?.user && session.user.email ? session.user : await fetchUser(accessToken);
-    setSession({ accessToken, expiresAt: Date.now() + Number(response.expires_in ?? 3600) * 1000, user });
+    setSession({
+      accessToken,
+      expiresAt: Date.now() + Number(response.expires_in ?? 3600) * 1000,
+      user,
+      driveAppData: granted.includes(DRIVE_APPDATA_SCOPE),
+    });
     return session;
   })().finally(() => {
     inflight = null;

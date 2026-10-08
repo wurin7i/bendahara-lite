@@ -7,10 +7,18 @@
 //  - append menambah setelah baris terakhir yang berisi
 //  - valueInputOption=RAW menyimpan tipe JSON apa adanya
 //  - 403 untuk akun tanpa izin / tanpa hak tulis, 404 untuk spreadsheet yang tidak ada
+//  - Drive appDataFolder per akun (berkas penunjuk buku), 403 bila izin Drive tidak diberikan atau Drive API mati
 
 const TOKEN_PREFIX = 'fake-token:';
 
-export const fakeToken = (email) => `${TOKEN_PREFIX}${email}`;
+/** Token palsu memuat email dan apakah izin Drive diberikan: "fake-token:email" atau "fake-token:email|sheets". */
+export const fakeToken = (email, { drive = true } = {}) => `${TOKEN_PREFIX}${email}${drive ? '' : '|sheets'}`;
+
+function parseToken(token) {
+  if (!token.startsWith(TOKEN_PREFIX)) return null;
+  const [email, flag] = token.slice(TOKEN_PREFIX.length).split('|');
+  return { email, drive: flag !== 'sheets' };
+}
 
 function httpError(status, message, errStatus = '') {
   const e = new Error(message);
@@ -69,14 +77,16 @@ const columnLetters = (index) => {
  * @param {{persistKey?: string, latency?: number}} [options]
  */
 export function createFakeSheetsServer({ persistKey = null, latency = 0 } = {}) {
-  let db = { counter: 0, sheetCounter: 100, spreadsheets: {} };
+  const freshDb = () => ({ counter: 0, sheetCounter: 100, driveCounter: 0, spreadsheets: {}, drive: {} });
+  let db = freshDb();
   if (persistKey && typeof localStorage !== 'undefined') {
     try {
-      db = JSON.parse(localStorage.getItem(persistKey)) ?? db;
+      db = { ...freshDb(), ...(JSON.parse(localStorage.getItem(persistKey)) ?? {}) };
     } catch {
       // abaikan data rusak
     }
   }
+  let driveApiEnabled = true;
   const save = () => {
     if (persistKey && typeof localStorage !== 'undefined') localStorage.setItem(persistKey, JSON.stringify(db));
   };
@@ -86,9 +96,46 @@ export function createFakeSheetsServer({ persistKey = null, latency = 0 } = {}) 
 
   function userOf(headers) {
     const auth = headers.get('authorization') ?? '';
-    const token = auth.replace(/^Bearer /, '');
-    if (!token.startsWith(TOKEN_PREFIX)) throw httpError(401, 'Request had invalid authentication credentials.', 'UNAUTHENTICATED');
-    return token.slice(TOKEN_PREFIX.length);
+    const parsed = parseToken(auth.replace(/^Bearer /, ''));
+    if (!parsed) throw httpError(401, 'Request had invalid authentication credentials.', 'UNAUTHENTICATED');
+    return parsed;
+  }
+
+  /** Drive appDataFolder: berkas per akun. */
+  function driveRoute(method, url, body, rawBody, user) {
+    if (!driveApiEnabled) {
+      throw httpError(403, 'Google Drive API has not been used in project 123456 before or it is disabled. Enable it by visiting the Google Cloud console.', 'PERMISSION_DENIED');
+    }
+    if (!user.drive) throw httpError(403, 'Request had insufficient authentication scopes.', 'PERMISSION_DENIED');
+    const files = (db.drive[user.email] ??= []);
+    const path = url.pathname;
+
+    if (method === 'GET' && path === '/drive/v3/files') {
+      const spaces = (url.searchParams.get('spaces') ?? 'drive').split(',');
+      const name = /name\s*=\s*'([^']+)'/.exec(url.searchParams.get('q') ?? '')?.[1];
+      const found = spaces.includes('appDataFolder') ? files.filter((f) => !name || f.name === name) : [];
+      return { files: found.map(({ id, name: n }) => ({ id, name: n })) };
+    }
+    if (method === 'POST' && path === '/drive/v3/files') {
+      if (!(body?.parents ?? []).includes('appDataFolder')) {
+        throw httpError(400, 'Only appDataFolder is supported by this fake', 'INVALID_ARGUMENT');
+      }
+      db.driveCounter += 1;
+      const file = { id: `fakeDriveFile${String(db.driveCounter).padStart(3, '0')}${'z'.repeat(20)}`, name: body.name, content: '' };
+      files.push(file);
+      return { id: file.id };
+    }
+    const m = /^\/(?:upload\/)?drive\/v3\/files\/([^/]+)$/.exec(path);
+    if (m) {
+      const file = files.find((f) => f.id === decodeURIComponent(m[1]));
+      if (!file) throw httpError(404, 'File not found: ' + m[1], 'NOT_FOUND');
+      if (method === 'GET' && url.searchParams.get('alt') === 'media') return { __text: file.content };
+      if (method === 'PATCH' && path.startsWith('/upload/') && url.searchParams.get('uploadType') === 'media') {
+        file.content = rawBody ?? '';
+        return { id: file.id };
+      }
+    }
+    throw httpError(404, `Unsupported fake Drive endpoint: ${method} ${path}`, 'NOT_FOUND');
   }
 
   function sheetOf(ss, name) {
@@ -258,9 +305,13 @@ export function createFakeSheetsServer({ persistKey = null, latency = 0 } = {}) 
     try {
       const failure = failures.shift();
       if (failure) throw Object.assign(httpError(failure.status, failure.message ?? 'Injected failure', failure.errStatus), { headers: failure.headers });
-      const email = userOf(headers);
-      const result = route(method, url, body, email);
+      const user = userOf(headers);
+      const isDrive = url.hostname === 'www.googleapis.com';
+      const result = isDrive ? driveRoute(method, url, body, init.body, user) : route(method, url, body, user.email);
       if (method !== 'GET') save();
+      if (result && typeof result.__text === 'string') {
+        return new Response(result.__text, { status: 200, headers: { 'Content-Type': 'application/json' } });
+      }
       return json(200, result);
     } catch (e) {
       if (e.status) {
@@ -286,10 +337,17 @@ export function createFakeSheetsServer({ persistKey = null, latency = 0 } = {}) 
     dump(id, sheetTitle) {
       return trimRows(db.spreadsheets[id].sheets.find((s) => s.title === sheetTitle).rows);
     },
+    /** Berkas appDataFolder milik satu akun, isinya sudah di-parse (untuk asersi pada tes). */
+    dumpDrive: (email) => (db.drive[email] ?? []).map((f) => ({ name: f.name, content: f.content ? JSON.parse(f.content) : null })),
+    /** Matikan/hidupkan Drive API seperti proyek Cloud yang belum mengaktifkannya. */
+    setDriveApiEnabled(enabled) {
+      driveApiEnabled = enabled;
+    },
     sheetTitles: (id) => db.spreadsheets[id].sheets.map((s) => s.title),
     spreadsheetIds: () => Object.keys(db.spreadsheets),
     reset() {
-      db = { counter: 0, sheetCounter: 100, spreadsheets: {} };
+      db = freshDb();
+      driveApiEnabled = true;
       failures = [];
       calls.length = 0;
       save();
@@ -309,11 +367,14 @@ export function createFakeFetch(server, { baseFetch } = {}) {
   return async function fakeFetch(input, init) {
     const url = new URL(typeof input === 'string' || input instanceof URL ? input : input.url);
     if (url.hostname === 'sheets.googleapis.com') return server.handle(url.toString(), init);
+    if (url.hostname === 'www.googleapis.com' && /^\/(upload\/)?drive\/v3\//.test(url.pathname)) {
+      return server.handle(url.toString(), init);
+    }
     if (url.hostname === 'www.googleapis.com' && url.pathname === '/oauth2/v3/userinfo') {
       const auth = new Headers(init?.headers ?? {}).get('authorization') ?? '';
-      const token = auth.replace(/^Bearer /, '');
-      if (!token.startsWith(TOKEN_PREFIX)) return json(401, { error: 'invalid_token' });
-      const email = token.slice(TOKEN_PREFIX.length);
+      const parsed = parseToken(auth.replace(/^Bearer /, ''));
+      if (!parsed) return json(401, { error: 'invalid_token' });
+      const { email } = parsed;
       const name = email.split('@')[0].replace(/[._-]+/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
       return json(200, { sub: email, email, email_verified: true, name, picture: '' });
     }
@@ -343,14 +404,11 @@ export function installFakeGoogle({ email = 'bendahara.demo@example.com', persis
                 setTimeout(() => config.error_callback?.({ type: 'popup_failed_to_open' }), latency);
                 return;
               }
+              // window.__fakeGoogleDenyDrive meniru pengguna yang tidak mencentang izin Drive (izin granular).
+              const drive = !window.__fakeGoogleDenyDrive;
+              const scope = drive ? config.scope : config.scope.split(' ').filter((s) => !s.includes('/drive')).join(' ');
               setTimeout(
-                () =>
-                  config.callback({
-                    access_token: fakeToken(email),
-                    expires_in: 3600,
-                    scope: config.scope,
-                    token_type: 'Bearer',
-                  }),
+                () => config.callback({ access_token: fakeToken(email, { drive }), expires_in: 3600, scope, token_type: 'Bearer' }),
                 latency,
               );
             },

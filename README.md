@@ -12,6 +12,9 @@ dan **login Google** sebagai pintu masuk. JavaScript saja (React + Vite), tanpa 
 - **Buku kas**: seluruh uang masuk/keluar dengan saldo berjalan, filter per akun dan per periode. Iuran masuk
   otomatis; pengeluaran, pemasukan lain, dan pindah saldo antar akun dicatat manual.
 - **Laporan saldo akhir**: saldo awal, masuk, keluar, dan saldo akhir per akun, plus daftar tunggakan. Bisa dicetak/PDF.
+- **Banyak buku (organisasi)**: satu akun Google bisa mengelola beberapa spreadsheet terpisah, mis. dua organisasi.
+  Pemilih buku di header untuk berpindah atau membuat buku baru. Daftar buku tersimpan di akun Google Anda (folder
+  tersembunyi di Drive), jadi **ikut ke semua perangkat dan browser** tanpa onboarding ulang.
 - **Login Google**: tanpa login tidak ada data yang tampil. Hak akses mengikuti pengaturan *Share* spreadsheet di Google
   (Editor = boleh mencatat, Viewer = hanya melihat).
 
@@ -31,10 +34,11 @@ Aplikasi ini berjalan sepenuhnya di browser dan memanggil Google Sheets API lang
 Anda perlu satu **OAuth Client ID** (gratis).
 
 1. **Buat proyek** di [Google Cloud Console](https://console.cloud.google.com/).
-2. **Aktifkan Google Sheets API**: *APIs & Services → Library → Google Sheets API → Enable*.
+2. **Aktifkan dua API**: *APIs & Services → Library* → **Google Sheets API** → Enable, lalu **Google Drive API** → Enable.
+   (Drive API hanya dipakai untuk mengingat daftar buku Anda; tanpanya aplikasi tetap jalan, lihat bagian *Banyak buku*.)
 3. **Atur layar persetujuan OAuth** (*OAuth consent screen* / *Google Auth Platform*):
    - Jenis pengguna **External**, isi nama aplikasi dan email dukungan.
-   - Tambahkan scope `https://www.googleapis.com/auth/spreadsheets`.
+   - Tambahkan scope `https://www.googleapis.com/auth/spreadsheets` dan `https://www.googleapis.com/auth/drive.appdata`.
    - Selama status **Testing**, tambahkan email para pengurus di **Test users** (maks. 100). Hanya mereka yang bisa
      login. Untuk dipakai lebih luas, aplikasi harus dipublikasikan dan melalui verifikasi Google karena scope
      Spreadsheet termasuk "sensitif".
@@ -49,8 +53,8 @@ Anda perlu satu **OAuth Client ID** (gratis).
    npm run dev
    ```
 
-6. Buka aplikasi, **Masuk dengan Google**, lalu pilih **Buat spreadsheet baru** (aplikasi membuat semua sheet dan
-   header-nya) atau tempel URL spreadsheet yang sudah ada.
+6. Buka aplikasi, **Masuk dengan Google** (centang kedua izin: Spreadsheet dan penyimpanan data aplikasi di Drive), lalu
+   pilih **Buat buku baru** (aplikasi membuat semua sheet dan header-nya) atau tempel URL spreadsheet yang sudah ada.
 
 ### Deploy
 
@@ -62,11 +66,29 @@ Letakkan isi `dist/` di hosting statis mana pun (GitHub Pages, Netlify, Cloudfla
 terdaftar di *Authorized JavaScript origins*. `VITE_GOOGLE_CLIENT_ID` dibaca saat **build**, jadi atur sebagai variabel
 build di layanan hosting Anda.
 
+### Banyak buku & banyak perangkat
+
+Satu **buku** = satu Google Spreadsheet = satu organisasi/kelompok (anggota, akun kas, periode, dan riwayatnya sendiri).
+
+- Pemilih buku di header untuk berpindah; **＋ Kelola / tambah buku…** untuk membuat buku baru atau menghubungkan
+  spreadsheet yang sudah ada. Hanya satu buku aktif pada satu waktu; tidak ada laporan gabungan lintas buku.
+- Daftar buku disimpan di **`appDataFolder` Google Drive** akun Anda (scope `drive.appdata`): folder tersembunyi
+  yang hanya bisa dibaca aplikasi ini dan hanya berisi ID serta judul spreadsheet, tanpa data keuangan. Karena ikut
+  akun Google, MacBook, laptop lain, atau browser lain yang login dengan akun yang sama langsung mengenali bukunya.
+- Izin Drive **opsional**. Bila tidak dicentang (atau Drive API belum diaktifkan), aplikasi tetap berjalan dan hanya
+  mengingat daftar di browser itu; di Pengaturan tampil pemberitahuan beserta alasannya.
+- **Hapus** di daftar buku hanya mengeluarkan buku dari daftar; spreadsheet-nya tidak dihapus dan bisa dihubungkan
+  lagi lewat URL-nya. Buku yang sedang aktif tidak bisa dihapus dari daftar.
+- Pengguna versi sebelumnya: spreadsheet terakhir yang diingat browser otomatis dimasukkan ke daftar dan dipindahkan ke Drive.
+- Folder tersebut bisa terhapus bila Anda memutus aplikasi dari akun Google. Dampaknya hanya mengulang pemilihan
+  spreadsheet sekali; data keuangan tetap aman di spreadsheet.
+
 ### Berbagi dengan pengurus lain
 
 1. Di Google Sheets, klik **Share** dan beri akses ke email mereka (**Editor** untuk mencatat, **Viewer** untuk melihat).
 2. Di Pengaturan, klik **Salin tautan untuk anggota tim** dan kirimkan. Mereka login dengan Google, lalu spreadsheet
-   langsung terhubung. Tanpa akses Share, aplikasi menolak dengan pesan "tidak punya akses".
+   langsung terhubung dan masuk ke daftar buku mereka (ikut ke semua perangkat mereka). Tanpa akses Share, aplikasi
+   menolak dengan pesan "tidak punya akses".
 3. Mencabut akses di Google Sheets otomatis mencabut akses ke data di aplikasi.
 
 ## Cara kerja
@@ -107,8 +129,8 @@ mengurutkan ulang baris di Sheets.
 
 ```
 src/lib/       logika bisnis murni (bulan, alokasi, buku kas, tabel iuran, rupiah)    ← dites unit
-src/google/    login Google (GIS), klien Sheets API, skema sheet, repository
-src/state/     konteks aplikasi: sesi, data, aksi bisnis
+src/google/    login Google (GIS), HTTP bersama, klien Sheets API, skema sheet, repository, penyimpanan Drive
+src/state/     konteks aplikasi (sesi, data, aksi bisnis) dan daftar buku (books.js, dites unit)
 src/views/     Iuran, Buku Kas, Laporan, Anggota, Pengaturan, layar masuk/setup
 src/dev/       Google palsu untuk mode demo dan pengujian
 tests/unit/    Vitest          e2e/    Playwright
@@ -117,7 +139,7 @@ tests/unit/    Vitest          e2e/    Playwright
 ## Pengujian
 
 ```bash
-npm test                 # unit test (logika bisnis + repository terhadap Sheets palsu)
+npm test                 # unit test (logika bisnis, repository, daftar buku) terhadap Sheets & Drive palsu
 npm run test:e2e         # end-to-end di Chromium (mode demo)
 ```
 
@@ -133,6 +155,7 @@ ada dengan `CHROMIUM_PATH=/path/ke/chrome npm run test:e2e`.
 | `Access blocked` / aplikasi belum diverifikasi | Akun Anda belum masuk daftar **Test users** pada layar persetujuan OAuth (status Testing). |
 | `Google Sheets API belum diaktifkan` | Aktifkan *Google Sheets API* pada proyek yang sama dengan Client ID (langkah 2). |
 | Tombol "Masuk" diganti pesan *Client ID belum diatur* | `VITE_GOOGLE_CLIENT_ID` kosong. Isi di `.env`, lalu **restart** `npm run dev` (nilai dibaca saat start). |
+| Pemberitahuan *"Daftar buku hanya diingat di browser ini"* | Izin Drive tidak dicentang saat masuk (keluar lalu masuk lagi dan centang), atau **Google Drive API belum diaktifkan** di proyek Cloud (langkah 2). Aplikasi tetap berfungsi; hanya daftar buku yang tidak ikut ke perangkat lain. |
 | Popup login tidak muncul | Browser memblokir popup untuk situs ini; izinkan lalu klik **Masuk dengan Google** lagi. |
 
 ## Batasan & catatan penting
@@ -141,6 +164,9 @@ ada dengan `CHROMIUM_PATH=/path/ke/chrome npm run test:e2e`.
   yang meniru perilaku terdokumentasi (rentang A1, sel kosong di ujung, 403/404/429, dll.). Permintaan pemformatan
   (header tebal, baris beku, format teks) hanya diterima begitu saja oleh tiruan dan baru tervalidasi saat dipakai di
   Google nyata. Langkah pertama yang disarankan: buat spreadsheet baru lewat aplikasi lalu periksa hasilnya di Sheets.
+- **Fitur Drive (daftar buku) belum diuji dengan Google sungguhan.** Panggilan ke `appDataFolder` mengikuti
+  dokumentasi Google, tetapi baru teruji terhadap tiruan. Bila gagal, aplikasi jatuh ke ingatan browser dan
+  menampilkan alasannya; sampaikan pesannya agar bisa diperbaiki. Pengguna lama diminta menyetujui satu izin tambahan.
 - **Cakupan izin cukup luas.** Scope `spreadsheets` secara teknis mengizinkan akses ke seluruh spreadsheet akun
   yang login, bukan hanya satu. Aplikasi hanya menyentuh spreadsheet yang dipilih, tetapi pengguna tetap mempercayakan
   izin itu pada kode aplikasi yang Anda host. Alternatifnya, scope `drive.file` lebih sempit namun mewajibkan Google

@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { bookLabel } from './components/DriveNotice.jsx';
 import { BrandMark, ToastProvider } from './components/ui.jsx';
 import { periodTitle } from './lib/selectors.js';
 import { AppProvider, useApp } from './state/AppContext.jsx';
@@ -32,8 +33,33 @@ function useRoute() {
   return route;
 }
 
+const NEW_BOOK = '__kelola__';
+
+/** Pemilih buku (organisasi) di header: berpindah antar spreadsheet atau membuka layar kelola/tambah buku. */
+function BookPicker() {
+  const { books, sheetId, bookTitle, actions } = useApp();
+  const sorted = [...books].sort((a, b) => bookLabel(a).localeCompare(bookLabel(b), 'id', { sensitivity: 'base' }));
+  const known = sorted.some((b) => b.id === sheetId);
+  return (
+    <label className="book-picker no-print">
+      <span className="sr-only">Buku aktif</span>
+      <select
+        aria-label="Pilih buku kas"
+        value={sheetId}
+        onChange={(e) => (e.target.value === NEW_BOOK ? actions.openSetup() : actions.switchBook(e.target.value))}
+      >
+        {!known && <option value={sheetId}>{bookTitle || 'Buku aktif'}</option>}
+        {sorted.map((b) => (
+          <option key={b.id} value={b.id}>{bookLabel(b)}</option>
+        ))}
+        <option value={NEW_BOOK}>＋ Kelola / tambah buku…</option>
+      </select>
+    </label>
+  );
+}
+
 function Shell() {
-  const { data, period, selectPeriod, user, orgName, actions, busy, config } = useApp();
+  const { data, period, selectPeriod, user, actions, busy, config } = useApp();
   const route = useRoute();
   const { View } = ROUTES.find((r) => r.id === route);
 
@@ -49,11 +75,9 @@ function Shell() {
         <div className="topbar-inner">
           <a className="brand" href="#/iuran">
             <BrandMark />
-            <span>
-              Bendahara Lite
-              {orgName && <small>{orgName}</small>}
-            </span>
+            <span>Bendahara Lite</span>
           </a>
+          <BookPicker />
           <span className="spacer" />
           {data.periods.length > 0 && period && (
             <label className="period-picker no-print">
@@ -87,15 +111,14 @@ function Shell() {
 }
 
 function Gate() {
-  const { phase } = useApp();
-  switch (phase) {
-    case 'signedOut': return <LoginView />;
-    case 'noSheet': return <SetupView />;
-    case 'needInit': return <NeedInitView />;
-    case 'error': return <ErrorView />;
-    case 'ready': return <Shell />;
-    default: return <LoadingView />;
-  }
+  const { phase, setupOpen } = useApp();
+  if (phase === 'signedOut') return <LoginView />;
+  if (phase === 'needInit') return <NeedInitView />;
+  if (phase === 'loading') return <LoadingView />;
+  // Layar daftar buku: saat belum ada buku, atau dibuka dari pemilih buku di header.
+  if (phase === 'noSheet' || setupOpen) return <SetupView />;
+  if (phase === 'error') return <ErrorView />;
+  return <Shell />;
 }
 
 export default function App() {

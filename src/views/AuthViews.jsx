@@ -1,5 +1,6 @@
 import { useState } from 'react';
-import { BrandMark, Spinner } from '../components/ui.jsx';
+import { DriveNotice, bookLabel } from '../components/DriveNotice.jsx';
+import { BrandMark, ConfirmButton, Spinner } from '../components/ui.jsx';
 import { TABLES } from '../google/schema.js';
 import { useApp } from '../state/AppContext.jsx';
 
@@ -71,18 +72,56 @@ function AccountBar() {
 }
 
 export function SetupView() {
-  const { actions } = useApp();
+  const { actions, books, sheetId, data, bookTitle } = useApp();
   const [title, setTitle] = useState('Kas Bendahara');
   const [existing, setExisting] = useState('');
+  const hasActive = Boolean(data); // ada buku yang sedang berjalan untuk kembali
+  const sorted = [...books].sort((a, b) => bookLabel(a).localeCompare(bookLabel(b), 'id', { sensitivity: 'base' }));
 
   return (
     <div className="center-screen">
       <div style={{ width: 'min(34rem, 100%)' }}>
         <div className="card">
-          <h1>Pilih spreadsheet</h1>
-          <p className="muted">Semua data (anggota, iuran, buku kas) disimpan di satu Google Spreadsheet.</p>
+          <h1>Pilih buku kas</h1>
+          <p className="muted">
+            Satu <strong>buku</strong> adalah satu Google Spreadsheet untuk satu organisasi atau kelompok, lengkap dengan
+            anggota, akun kas, dan riwayatnya. Anda bisa mengelola beberapa buku dan berpindah di antaranya.
+          </p>
 
-          <h2 style={{ margin: '1rem 0 0.5rem' }}>Buat spreadsheet baru</h2>
+          {sorted.length > 0 && (
+            <>
+              <h2 style={{ margin: '1rem 0 0.5rem' }}>Buku Anda</h2>
+              <ul className="pay-list" aria-label="Daftar buku">
+                {sorted.map((b) => {
+                  const active = hasActive && b.id === sheetId;
+                  return (
+                    <li key={b.id}>
+                      <div className="grow">
+                        <strong>{bookLabel(b)}</strong>
+                        {active && <span className="tag in">aktif</span>}
+                      </div>
+                      {active ? (
+                        <button type="button" className="btn small" onClick={actions.closeSetup}>Kembali</button>
+                      ) : (
+                        <>
+                          <button type="button" className="btn small primary" onClick={() => actions.switchBook(b.id)}>Buka</button>
+                          <ConfirmButton onConfirm={() => actions.forgetBook(b.id)} confirmLabel="Hapus dari daftar?">
+                            Hapus
+                          </ConfirmButton>
+                        </>
+                      )}
+                    </li>
+                  );
+                })}
+              </ul>
+              <p className="hint">“Hapus” hanya mengeluarkan buku dari daftar ini. Spreadsheet-nya tetap ada di Google Drive.</p>
+            </>
+          )}
+          <DriveNotice />
+        </div>
+
+        <div className="card">
+          <h2 style={{ marginBottom: '0.5rem' }}>Buat buku baru</h2>
           <form
             onSubmit={(e) => {
               e.preventDefault();
@@ -91,14 +130,14 @@ export function SetupView() {
           >
             <label className="field">
               <span className="label">Nama spreadsheet</span>
-              <input type="text" value={title} onChange={(e) => setTitle(e.target.value)} />
+              <input type="text" value={title} onChange={(e) => setTitle(e.target.value)} placeholder="mis. Kas RT 05" />
             </label>
-            <button type="submit" className="btn primary">Buat spreadsheet baru</button>
+            <button type="submit" className="btn primary">Buat buku baru</button>
           </form>
         </div>
 
         <div className="card">
-          <h2 style={{ marginBottom: '0.5rem' }}>Gunakan spreadsheet yang sudah ada</h2>
+          <h2 style={{ marginBottom: '0.5rem' }}>Hubungkan spreadsheet yang sudah ada</h2>
           <p className="muted small">
             Untuk bergabung ke kas yang sudah berjalan, tempel URL spreadsheet. Pemilik harus lebih dulu membagikannya
             (Share) ke email Anda sebagai <strong>Editor</strong> agar bisa mencatat, atau <strong>Viewer</strong> untuk
@@ -122,6 +161,12 @@ export function SetupView() {
             <button type="submit" className="btn" disabled={!existing.trim()}>Hubungkan</button>
           </form>
         </div>
+
+        {hasActive && (
+          <p style={{ textAlign: 'center', marginTop: '1rem' }}>
+            <button type="button" className="btn" onClick={actions.closeSetup}>← Kembali ke {bookTitle || 'buku aktif'}</button>
+          </p>
+        )}
         <AccountBar />
       </div>
     </div>
@@ -141,7 +186,7 @@ export function NeedInitView() {
         </p>
         <p><code>{names.join(', ')}</code></p>
         <div className="modal-actions">
-          <button type="button" className="btn" onClick={actions.changeSpreadsheet}>Batal</button>
+          <button type="button" className="btn" onClick={actions.openSetup}>Batal</button>
           <button type="button" className="btn primary" onClick={actions.confirmInit}>Siapkan sekarang</button>
         </div>
       </div>
@@ -157,7 +202,7 @@ export function ErrorView() {
         <h1>Tidak bisa membuka data</h1>
         <div className="notice error" role="alert" style={{ marginTop: '0.75rem' }}>{fatal}</div>
         <div className="modal-actions">
-          <button type="button" className="btn" onClick={actions.changeSpreadsheet}>Ganti spreadsheet</button>
+          <button type="button" className="btn" onClick={actions.openSetup}>Kelola buku</button>
           <button type="button" className="btn primary" onClick={actions.retry}>Coba lagi</button>
         </div>
         <AccountBar />

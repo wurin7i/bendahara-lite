@@ -5,6 +5,7 @@ import { formatNumber, formatRupiah } from '../lib/money.js';
 import { addMonths, periodRangeLabel } from '../lib/months.js';
 import { periodAllocationSummary, periodTitle } from '../lib/selectors.js';
 import { useToast } from '../components/ui.jsx';
+import { DriveNotice } from '../components/DriveNotice.jsx';
 import { useApp } from '../state/AppContext.jsx';
 
 export default function SettingsView() {
@@ -304,7 +305,7 @@ function SpreadsheetSection() {
   return (
     <section className="card" aria-labelledby="set-sheet">
       <div className="card-head">
-        <h2 id="set-sheet">Spreadsheet & akses</h2>
+        <h2 id="set-sheet">Buku aktif, spreadsheet & akses</h2>
       </div>
       <form
         onSubmit={(e) => {
@@ -325,8 +326,9 @@ function SpreadsheetSection() {
         <a className="btn" href={sheetUrl} target="_blank" rel="noopener noreferrer">Buka di Google Sheets ↗</a>
         <button type="button" className="btn" onClick={copyLink}>Salin tautan untuk anggota tim</button>
         <button type="button" className="btn" onClick={reload}>Muat ulang data</button>
-        <button type="button" className="btn danger" onClick={actions.changeSpreadsheet}>Ganti spreadsheet</button>
+        <button type="button" className="btn" onClick={actions.openSetup}>Kelola buku…</button>
       </div>
+      <DriveNotice />
       <p className="muted small">
         Masuk sebagai <strong>{user.email}</strong>. Siapa pun yang diberi akses lewat tombol <em>Share</em> di Google Sheets
         (Editor untuk mencatat, Viewer untuk melihat) dapat masuk ke aplikasi ini dengan akun Google-nya. Mencabut akses di Google
