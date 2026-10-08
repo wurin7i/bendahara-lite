@@ -27,8 +27,8 @@ const pref = {
     try { window.localStorage.setItem(key, value); } catch { /* abaikan */ }
   },
 };
-const sheetKey = (email) => `bendahara.sheet.${email}`;
-const periodKey = (sheetId) => `bendahara.period.${sheetId}`;
+const sheetKey = (email) => `${config.storagePrefix}.sheet.${email}`;
+const periodKey = (sheetId) => `${config.storagePrefix}.period.${sheetId}`;
 
 // Tautan berbagi: https://aplikasi/?sheet=<ID> -> dibaca sekali lalu dibersihkan dari URL.
 const sheetFromUrl = (() => {
@@ -47,7 +47,11 @@ const sheetFromUrl = (() => {
 
 export function AppProvider({ children }) {
   const toast = useToast();
-  const api = useMemo(() => createSheetsApi({ getToken: auth.getAccessToken }), []);
+  const api = useMemo(
+    // 401 = Google menolak token (dicabut/kedaluwarsa/tidak valid): batalkan sesi agar kembali ke layar masuk.
+    () => createSheetsApi({ getToken: auth.getAccessToken, onUnauthorized: auth.invalidateSession }),
+    [],
+  );
 
   const [session, setSession] = useState(() => auth.restoreSession());
   const [phase, setPhase] = useState(session ? 'loading' : 'signedOut');

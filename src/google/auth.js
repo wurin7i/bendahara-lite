@@ -6,13 +6,14 @@
 //
 // Token disimpan di sessionStorage (hilang saat tab ditutup), bukan localStorage.
 
+import { config } from '../config.js';
 import { AuthError } from './errors.js';
 
 export const SHEETS_SCOPE = 'https://www.googleapis.com/auth/spreadsheets';
 export const SCOPES = ['openid', 'email', 'profile', SHEETS_SCOPE];
 
 const GIS_SRC = 'https://accounts.google.com/gsi/client';
-const SESSION_KEY = 'bendahara.session';
+const SESSION_KEY = `${config.storagePrefix}.session`;
 const EXPIRY_MARGIN_MS = 60_000;
 const SILENT_TIMEOUT_MS = 15_000;
 
@@ -178,6 +179,11 @@ export async function getAccessToken() {
     setSession(null);
     throw err instanceof AuthError ? err : new AuthError('Sesi berakhir');
   }
+}
+
+/** Buang sesi lokal tanpa mencabut izin di Google (dipakai saat Google menolak token dengan 401). */
+export function invalidateSession() {
+  setSession(null);
 }
 
 export function signOut() {

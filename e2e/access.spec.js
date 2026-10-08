@@ -130,6 +130,32 @@ test('sheet bernama sama dengan struktur lain tidak ditimpa', async ({ page }) =
   expect(cells).toEqual([['Nama Lengkap', 'Telepon']]);
 });
 
+test('Google menolak token (401) di tengah sesi: kembali ke layar masuk, bukan macet', async ({ page }) => {
+  await loginAndCreateSheet(page);
+  await nav(page, 'Pengaturan');
+  await page.evaluate(() => window.__fakeGoogle.failNext(401, 'Invalid Credentials'));
+  await page.getByRole('button', { name: 'Muat ulang data' }).click();
+
+  await expect(page.getByRole('button', { name: 'Masuk dengan Google' })).toBeVisible();
+  await expect(page.getByRole('navigation', { name: 'Menu utama' })).toHaveCount(0);
+  expect(await page.evaluate(() => sessionStorage.getItem('bendahara-demo.session'))).toBeNull();
+
+  // masuk lagi memulihkan aplikasi
+  await page.getByRole('button', { name: 'Masuk dengan Google' }).click();
+  await expect(page.getByRole('navigation', { name: 'Menu utama' })).toBeVisible();
+});
+
+test('mode demo memakai penyimpanan terpisah dari mode sungguhan', async ({ page }) => {
+  await loginAndCreateSheet(page);
+  const keys = await page.evaluate(() => ({
+    session: [...Object.keys(sessionStorage)],
+    local: [...Object.keys(localStorage)],
+  }));
+  // tidak ada kunci "bendahara.*" (milik mode sungguhan) yang tersentuh oleh demo
+  expect([...keys.session, ...keys.local].filter((k) => k.startsWith('bendahara.'))).toEqual([]);
+  expect(keys.session).toContain('bendahara-demo.session');
+});
+
 test.describe('sesi Google', () => {
   test('token kedaluwarsa diperbarui diam-diam dan aksi tetap berhasil', async ({ page }) => {
     await loginAndCreateSheet(page);

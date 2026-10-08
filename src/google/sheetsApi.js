@@ -13,8 +13,14 @@ const defaultSleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
  * @param {() => Promise<string>} deps.getToken mengembalikan access token yang masih berlaku
  * @param {typeof fetch} [deps.fetchImpl]
  * @param {(ms: number) => Promise<void>} [deps.sleep]
+ * @param {() => void} [deps.onUnauthorized] dipanggil saat Google membalas 401 (token ditolak)
  */
-export function createSheetsApi({ getToken, fetchImpl = (...args) => globalThis.fetch(...args), sleep = defaultSleep }) {
+export function createSheetsApi({
+  getToken,
+  fetchImpl = (...args) => globalThis.fetch(...args),
+  sleep = defaultSleep,
+  onUnauthorized,
+}) {
   async function request(method, path, { query, body } = {}) {
     const url = new URL(BASE + path);
     for (const [key, value] of Object.entries(query ?? {})) {
@@ -44,7 +50,9 @@ export function createSheetsApi({ getToken, fetchImpl = (...args) => globalThis.
         await sleep(retryAfter > 0 ? retryAfter * 1000 : 500 * 2 ** attempt);
         continue;
       }
-      throw await toApiError(res, method);
+      const error = await toApiError(res, method);
+      if (error instanceof AuthError) onUnauthorized?.();
+      throw error;
     }
   }
 

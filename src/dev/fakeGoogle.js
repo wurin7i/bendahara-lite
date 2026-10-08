@@ -322,7 +322,7 @@ export function createFakeFetch(server, { baseFetch } = {}) {
  *  - window.google.accounts.oauth2 (Google Identity Services)
  *  - window.fetch untuk host googleapis
  */
-export function installFakeGoogle({ email = 'bendahara.demo@example.com', persistKey = 'bendahara.fakeGoogle', latency = 120 } = {}) {
+export function installFakeGoogle({ email = 'bendahara.demo@example.com', persistKey = 'bendahara-demo.fakeGoogle', latency = 120 } = {}) {
   const server = createFakeSheetsServer({ persistKey, latency });
   const realFetch = window.fetch.bind(window);
   window.fetch = createFakeFetch(server, { baseFetch: realFetch });

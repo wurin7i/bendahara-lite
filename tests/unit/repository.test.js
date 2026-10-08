@@ -248,10 +248,36 @@ describe('akses & ketahanan', () => {
     expect(server.dump(spreadsheetId, 'Anggota')).toHaveLength(1); // hanya header
   });
 
-  it('401 menjadi AuthError', async () => {
-    const { repo, server } = await freshRepo();
+  it('401 menjadi AuthError dan memberi tahu pemanggil agar sesi dibatalkan', async () => {
+    const server = createFakeSheetsServer();
+    let rejected = 0;
+    const api = createSheetsApi({
+      getToken: async () => fakeToken(ME),
+      fetchImpl: createFakeFetch(server),
+      sleep: async () => {},
+      onUnauthorized: () => { rejected += 1; },
+    });
+    const { spreadsheetId } = await createSpreadsheet(api, 'Kas');
+    const repo = createRepository({ api, spreadsheetId, user: { email: ME } });
+    await repo.initialize();
+    expect(rejected).toBe(0);
+
     server.failNext(401, 'Invalid Credentials');
     const err = await repo.load().catch((e) => e);
     expect(err).toBeInstanceOf(AuthError);
+    expect(rejected).toBe(1);
+  });
+
+  it('token palsu/tidak dikenal ditolak 401 oleh Google (kasus sisa sesi demo di mode sungguhan)', async () => {
+    const server = createFakeSheetsServer();
+    let rejected = 0;
+    const api = createSheetsApi({
+      getToken: async () => 'ya29.token-yang-tidak-valid',
+      fetchImpl: createFakeFetch(server),
+      onUnauthorized: () => { rejected += 1; },
+    });
+    const err = await createRepository({ api, spreadsheetId: 'apapun', user: { email: ME } }).load().catch((e) => e);
+    expect(err).toBeInstanceOf(AuthError);
+    expect(rejected).toBe(1);
   });
 });

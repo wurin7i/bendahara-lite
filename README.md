@@ -124,6 +124,17 @@ npm run test:e2e         # end-to-end di Chromium (mode demo)
 Bila browser Playwright belum terpasang: `npx playwright install chromium`, atau arahkan ke Chromium yang sudah
 ada dengan `CHROMIUM_PATH=/path/ke/chrome npm run test:e2e`.
 
+## Pemecahan masalah
+
+| Gejala | Penyebab & solusi |
+| --- | --- |
+| `401 Unauthorized` ke `sheets.googleapis.com` / `fakeSheet…` | Sisa sesi mode demo di browser yang sama. Pada versi terbaru aplikasi otomatis kembali ke layar masuk; demo dan mode sungguhan juga memakai penyimpanan terpisah. Bila masih terjadi: DevTools → *Application* → *Clear site data*. |
+| Popup Google: `Error 400: origin_mismatch` | Alamat yang Anda buka (mis. `http://localhost:5173`) belum ada di **Authorized JavaScript origins** pada OAuth Client ID. Pastikan persis sama, termasuk port. |
+| `Access blocked` / aplikasi belum diverifikasi | Akun Anda belum masuk daftar **Test users** pada layar persetujuan OAuth (status Testing). |
+| `Google Sheets API belum diaktifkan` | Aktifkan *Google Sheets API* pada proyek yang sama dengan Client ID (langkah 2). |
+| Tombol "Masuk" diganti pesan *Client ID belum diatur* | `VITE_GOOGLE_CLIENT_ID` kosong. Isi di `.env`, lalu **restart** `npm run dev` (nilai dibaca saat start). |
+| Popup login tidak muncul | Browser memblokir popup untuk situs ini; izinkan lalu klik **Masuk dengan Google** lagi. |
+
 ## Batasan & catatan penting
 
 - **Belum diuji dengan Google sungguhan.** Pengujian berjalan terhadap tiruan Sheets API dan Google Identity Services
