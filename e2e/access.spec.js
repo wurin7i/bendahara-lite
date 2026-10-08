@@ -57,6 +57,15 @@ test('tautan berbagi ?sheet=ID didahulukan dari spreadsheet tersimpan lalu diber
   expect(new URL(page.url()).searchParams.has('sheet')).toBe(false);
 });
 
+test('login gagal menampilkan alasan sebenarnya (popup diblokir), bukan "sesi berakhir"', async ({ page }) => {
+  await page.goto('/');
+  await page.getByRole('button', { name: 'Masuk dengan Google' }).waitFor();
+  await page.evaluate(() => { window.__fakeGoogleBlockPopup = true; });
+  await page.getByRole('button', { name: 'Masuk dengan Google' }).click();
+  await expect(page.getByRole('alert')).toContainText('Popup login Google diblokir');
+  await expect(page.getByText('Sesi Google Anda berakhir')).toHaveCount(0);
+});
+
 test('URL yang bukan spreadsheet ditolak sebelum memanggil Google', async ({ page }) => {
   await loginOnly(page);
   await page.getByLabel('URL atau ID spreadsheet').fill('bukan url');
@@ -130,20 +139,31 @@ test('sheet bernama sama dengan struktur lain tidak ditimpa', async ({ page }) =
   expect(cells).toEqual([['Nama Lengkap', 'Telepon']]);
 });
 
-test('Google menolak token (401) di tengah sesi: kembali ke layar masuk, bukan macet', async ({ page }) => {
+test('Google menolak token (401) di tengah sesi: dialog Lanjutkan, lalu aksi dilanjutkan otomatis', async ({ page }) => {
   await loginAndCreateSheet(page, 'Kas Uji');
   await nav(page, 'Pengaturan');
   await waitForDriveSynced(page, 'Kas Uji'); // jangan sampai 401 termakan penulisan daftar buku di latar
-  await page.evaluate(() => window.__fakeGoogle.failNext(401, 'Invalid Credentials'));
+  await page.evaluate(() => {
+    window.__fakeGoogleBlockPopup = true; // pembaruan senyap gagal -> perlu ketukan pengguna
+    window.__fakeGoogle.failNext(401, 'Invalid Credentials');
+  });
   await page.getByRole('button', { name: 'Muat ulang data' }).click();
 
-  await expect(page.getByRole('button', { name: 'Masuk dengan Google' })).toBeVisible();
-  await expect(page.getByRole('navigation', { name: 'Menu utama' })).toHaveCount(0);
-  expect(await page.evaluate(() => sessionStorage.getItem('bendahara-demo.session'))).toBeNull();
+  // bukan layar masuk: aplikasi tetap di tempat, hanya meminta melanjutkan
+  const dialog = page.getByRole('dialog', { name: 'Sesi Google habis' });
+  await expect(dialog).toBeVisible();
+  await expect(dialog).toContainText(DEMO_EMAIL);
+  await expect(page.getByRole('navigation', { name: 'Menu utama' })).toBeAttached();
 
-  // masuk lagi memulihkan aplikasi
-  await page.getByRole('button', { name: 'Masuk dengan Google' }).click();
-  await expect(page.getByRole('navigation', { name: 'Menu utama' })).toBeVisible();
+  // popup masih diblokir: galat jelas, dialog tetap ada
+  await dialog.getByRole('button', { name: 'Lanjutkan' }).click();
+  await expect(dialog.getByRole('alert')).toContainText('Popup login Google diblokir');
+
+  // popup diizinkan -> satu ketukan -> permintaan yang menunggu selesai sendiri (tanpa mengklik "Muat ulang" lagi)
+  await page.evaluate(() => { window.__fakeGoogleBlockPopup = false; });
+  await dialog.getByRole('button', { name: 'Lanjutkan' }).click();
+  await expect(dialog).toBeHidden();
+  await expect(page.getByText('Data dimuat ulang')).toBeVisible();
 });
 
 test('mode demo memakai penyimpanan terpisah dari mode sungguhan', async ({ page }) => {
@@ -154,14 +174,18 @@ test('mode demo memakai penyimpanan terpisah dari mode sungguhan', async ({ page
   }));
   // tidak ada kunci "bendahara.*" (milik mode sungguhan) yang tersentuh oleh demo
   expect([...keys.session, ...keys.local].filter((k) => k.startsWith('bendahara.'))).toEqual([]);
-  expect(keys.session).toContain('bendahara-demo.session');
+  // sesi disimpan di localStorage (bertahan saat tab dibuang/ditutup), bukan sessionStorage
+  expect(keys.local).toContain('bendahara-demo.session');
+  expect(keys.session).not.toContain('bendahara-demo.session');
 });
 
 test.describe('sesi Google', () => {
-  test('token kedaluwarsa diperbarui diam-diam dan aksi tetap berhasil', async ({ page }) => {
+  const JUMP = new Date('2026-10-08T13:00:00+07:00'); // +3 jam: token (1 jam) sudah habis
+
+  test('token kedaluwarsa diperbarui diam-diam (di dalam ketukan pengguna) dan aksi tetap berhasil', async ({ page }) => {
     await loginAndCreateSheet(page);
     expect(await page.evaluate(() => window.__fakeGoogleTokenRequests)).toBe(1); // hanya saat login
-    await page.clock.setFixedTime(new Date('2026-10-08T13:00:00+07:00')); // +3 jam: token (1 jam) sudah habis
+    await page.clock.setFixedTime(JUMP);
 
     await nav(page, 'Anggota');
     await page.getByRole('button', { name: '+ Tambah anggota' }).click();
@@ -170,37 +194,90 @@ test.describe('sesi Google', () => {
 
     await expect(page.getByRole('dialog')).toBeHidden();
     await expect(page.getByRole('row', { name: /Dewi/ })).toBeVisible();
-    // token benar-benar diminta ulang (sekali), bukan memakai token lama
+    // token benar-benar diminta ulang (sekali), bukan memakai token lama; dialog "Lanjutkan" tidak perlu muncul
     expect(await page.evaluate(() => window.__fakeGoogleTokenRequests)).toBe(2);
   });
 
-  test('pembaruan senyap gagal (popup diblokir): kembali ke layar masuk, lalu bisa masuk lagi tanpa kehilangan data', async ({ page }) => {
+  test('pembaruan senyap gagal (popup diblokir): dialog Lanjutkan tampil DI ATAS form yang terbuka, isian tidak hilang', async ({ page }) => {
     await loginAndCreateSheet(page);
     await nav(page, 'Anggota');
     await page.getByRole('button', { name: '+ Tambah anggota' }).click();
-    await page.getByRole('dialog').getByLabel('Nama', { exact: true }).fill('Eka');
-    await page.getByRole('dialog').getByRole('button', { name: 'Simpan' }).click();
-    await expect(page.getByRole('row', { name: /Eka/ })).toBeVisible();
+    const form = page.getByRole('dialog', { name: 'Tambah anggota' });
+    await form.getByLabel('Nama', { exact: true }).fill('Eka');
 
     await page.evaluate(() => { window.__fakeGoogleBlockPopup = true; });
-    await page.clock.setFixedTime(new Date('2026-10-08T13:00:00+07:00'));
-    await nav(page, 'Pengaturan');
-    await page.getByRole('button', { name: 'Muat ulang data' }).click();
+    await page.clock.setFixedTime(JUMP);
+    await form.getByRole('button', { name: 'Simpan' }).click();
 
-    await expect(page.getByRole('button', { name: 'Masuk dengan Google' })).toBeVisible();
-    await expect(page.getByRole('navigation', { name: 'Menu utama' })).toHaveCount(0);
+    const reauth = page.getByRole('dialog', { name: 'Sesi Google habis' });
+    await expect(reauth).toBeVisible();
+    await expect(form).toBeVisible(); // form di bawahnya tetap ada, isiannya utuh
+    await expect(form.getByLabel('Nama', { exact: true })).toHaveValue('Eka');
 
+    // dialog Lanjutkan bisa diketuk walau form modal sedang terbuka di belakangnya
     await page.evaluate(() => { window.__fakeGoogleBlockPopup = false; });
-    await page.getByRole('button', { name: 'Masuk dengan Google' }).click();
-    await expect(page.getByRole('navigation', { name: 'Menu utama' })).toBeVisible();
-    await nav(page, 'Anggota');
+    await reauth.getByRole('button', { name: 'Lanjutkan' }).click();
+
+    // penyimpanan yang menunggu selesai sendiri: tidak perlu menekan Simpan lagi
+    await expect(reauth).toBeHidden();
+    await expect(form).toBeHidden();
     await expect(page.getByRole('row', { name: /Eka/ })).toBeVisible();
   });
 
-  test('sesi yang sudah kedaluwarsa tidak dipulihkan saat halaman dimuat ulang', async ({ page }) => {
-    await loginAndCreateSheet(page);
-    await page.clock.setFixedTime(new Date('2026-10-08T13:00:00+07:00'));
+  test('sesi yang sudah kedaluwarsa tetap diingat setelah dimuat ulang: cukup ketuk Lanjutkan, bukan login penuh', async ({ page }) => {
+    await loginAndCreateSheet(page, 'Kas Uji');
+    await waitForDriveSynced(page, 'Kas Uji');
+    await page.clock.setFixedTime(JUMP);
     await page.reload();
+
+    const reauth = page.getByRole('dialog', { name: 'Sesi Google habis' });
+    await expect(reauth).toBeVisible();
+    await expect(reauth).toContainText(DEMO_EMAIL);
+    await expect(page.getByRole('button', { name: 'Masuk dengan Google' })).toHaveCount(0);
+
+    await reauth.getByRole('button', { name: 'Lanjutkan' }).click();
+    await expect(page.getByRole('navigation', { name: 'Menu utama' })).toBeVisible();
+    await expect(page.getByLabel('Pilih buku kas').locator('option:checked')).toHaveText('Kas Uji');
+  });
+
+  test('"Keluar" di dialog Lanjutkan benar-benar keluar (tanpa pesan galat susulan)', async ({ page }) => {
+    await loginAndCreateSheet(page, 'Kas Uji');
+    await waitForDriveSynced(page, 'Kas Uji');
+    await page.clock.setFixedTime(JUMP);
+    await page.reload();
+    const reauth = page.getByRole('dialog', { name: 'Sesi Google habis' });
+    await reauth.getByRole('button', { name: 'Keluar' }).click();
+
     await expect(page.getByRole('button', { name: 'Masuk dengan Google' })).toBeVisible();
+    expect(await page.evaluate(() => localStorage.getItem('bendahara-demo.session'))).toBeNull();
+    await expect(page.getByText('Sesi Google Anda berakhir')).toHaveCount(0);
+  });
+
+  test('tab kembali aktif dengan token habis: ajakan Lanjutkan muncul sebelum pengguna menyimpan sesuatu', async ({ page }) => {
+    await loginAndCreateSheet(page);
+    await page.clock.setFixedTime(JUMP);
+    await page.evaluate(() => document.dispatchEvent(new Event('visibilitychange'))); // tab kembali dari latar
+
+    const reauth = page.getByRole('dialog', { name: 'Sesi Google habis' });
+    await expect(reauth).toBeVisible();
+    await reauth.getByRole('button', { name: 'Lanjutkan' }).click();
+    await expect(reauth).toBeHidden();
+    await expect(page.getByRole('navigation', { name: 'Menu utama' })).toBeVisible();
+  });
+
+  test('sesi bertahan di tab baru dan dihapus di semua tab saat keluar', async ({ page, context }) => {
+    await loginAndCreateSheet(page, 'Kas Uji');
+
+    // browser ponsel membuka tautan di tab baru / memulihkan tab yang dibuang: tidak perlu login lagi
+    const second = await context.newPage();
+    await freezeClock(second);
+    await second.goto('/');
+    await expect(second.getByRole('navigation', { name: 'Menu utama' })).toBeVisible();
+    await expect(second.getByLabel('Pilih buku kas').locator('option:checked')).toHaveText('Kas Uji');
+
+    // keluar di tab pertama -> tab kedua ikut keluar
+    await page.getByRole('button', { name: 'Keluar' }).click();
+    await expect(page.getByRole('button', { name: 'Masuk dengan Google' })).toBeVisible();
+    await expect(second.getByRole('button', { name: 'Masuk dengan Google' })).toBeVisible();
   });
 });

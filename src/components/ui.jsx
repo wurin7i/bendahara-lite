@@ -27,6 +27,7 @@ export function ToastProvider({ children }) {
 
 /* ---------- Modal (memakai <dialog> bawaan: fokus terkunci & Esc otomatis) ---------- */
 export function Modal({ title, onClose, children, wide = false }) {
+  const dismissible = typeof onClose === 'function'; // tanpa onClose: harus dijawab lewat tombol di dalamnya
   const ref = useRef(null);
   const downOnBackdrop = useRef(false);
   const titleId = useId();
@@ -44,16 +45,16 @@ export function Modal({ title, onClose, children, wide = false }) {
       aria-labelledby={titleId}
       onCancel={(e) => {
         e.preventDefault();
-        onClose();
+        onClose?.();
       }}
       // Tutup hanya bila klik dimulai & berakhir di latar; kalau tidak, memilih teks lalu melepas di luar menutup form.
       onMouseDown={(e) => { downOnBackdrop.current = e.target === ref.current; }}
-      onClick={(e) => { if (e.target === ref.current && downOnBackdrop.current) onClose(); }}
+      onClick={(e) => { if (dismissible && e.target === ref.current && downOnBackdrop.current) onClose(); }}
     >
       <div className="modal-card">
         <div className="modal-head">
           <h2 id={titleId}>{title}</h2>
-          <button type="button" className="icon-btn" aria-label="Tutup" onClick={onClose}>×</button>
+          {dismissible && <button type="button" className="icon-btn" aria-label="Tutup" onClick={onClose}>×</button>}
         </div>
         <div className="modal-body">{children}</div>
       </div>

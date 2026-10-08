@@ -157,6 +157,7 @@ ada dengan `CHROMIUM_PATH=/path/ke/chrome npm run test:e2e`.
 | Tombol "Masuk" diganti pesan *Client ID belum diatur* | `VITE_GOOGLE_CLIENT_ID` kosong. Isi di `.env`, lalu **restart** `npm run dev` (nilai dibaca saat start). |
 | Pemberitahuan *"Daftar buku hanya diingat di browser ini"* | Izin Drive tidak dicentang saat masuk (keluar lalu masuk lagi dan centang), atau **Google Drive API belum diaktifkan** di proyek Cloud (langkah 2). Aplikasi tetap berfungsi; hanya daftar buku yang tidak ikut ke perangkat lain. |
 | Pemberitahuan *"Google Drive API belum aktif"* padahal sudah diaktifkan | Baca **"Pesan dari Google"** di notifikasi: memuat nomor proyek (`project 123456…`). Nomor itu harus sama dengan awalan Client ID Anda (`123456…-xxxx.apps.googleusercontent.com`). Bila beda, Drive API Anda aktifkan di proyek lain. Bila sama, mungkin baru diaktifkan (tunggu beberapa menit lalu klik **Coba lagi**). |
+| Dialog *"Sesi Google habis"* muncul | Normal: token Google berlaku ±1 jam. Ketuk **Lanjutkan** (popup Google menutup sendiri). Bila popup tidak muncul, izinkan pop-up untuk situs ini di pengaturan browser, lalu ketuk lagi. |
 | Popup login tidak muncul | Browser memblokir popup untuk situs ini; izinkan lalu klik **Masuk dengan Google** lagi. |
 
 ## Batasan & catatan penting
@@ -172,8 +173,15 @@ ada dengan `CHROMIUM_PATH=/path/ke/chrome npm run test:e2e`.
   yang login, bukan hanya satu. Aplikasi hanya menyentuh spreadsheet yang dipilih, tetapi pengguna tetap mempercayakan
   izin itu pada kode aplikasi yang Anda host. Alternatifnya, scope `drive.file` lebih sempit namun mewajibkan Google
   Picker (API key tambahan) agar pengurus lain bisa membuka spreadsheet yang sudah ada.
-- **Token disimpan di `sessionStorage`** (hilang saat tab ditutup) dan berlaku sekitar 1 jam. Aplikasi mencoba
-  memperbaruinya diam-diam; bila popup diblokir browser, Anda diminta masuk lagi.
+- **Umur sesi: batas 1 jam dari Google, tetapi cukup satu ketukan.** Login Google tanpa server hanya menghasilkan
+  token berumur sekitar 1 jam dan tidak punya refresh token; ini batas dari Google, bukan dari aplikasi. Agar tidak
+  mengganggu: sesi disimpan di `localStorage` sehingga bertahan saat tab ditutup/dibuang browser (sering di ponsel)
+  atau tautan dibuka di tab baru, dan disinkronkan antar tab (keluar di satu tab berlaku di tab lain). Saat token habis,
+  aplikasi tidak membuang Anda ke layar login: muncul dialog **Lanjutkan** (satu ketukan), dan aksi yang sedang
+  berjalan, mis. Simpan, otomatis dilanjutkan tanpa diulang. Di dalam klik pengguna, pembaruan sering berjalan senyap
+  tanpa dialog. Konsekuensi keamanan: token (maks. 1 jam) tersimpan di disk perangkat sampai habis atau sampai
+  Anda menekan **Keluar**; jangan pakai komputer bersama tanpa menekan Keluar. Sesi sungguh berhari-hari memerlukan
+  server kecil untuk memegang refresh token, dan tidak termasuk dalam aplikasi ini.
 - **Konkurensi ringan.** Dua pengurus mencatat bersamaan aman (penambahan baris atomik, pembaruan dicari lewat ID),
   tetapi tampilan baru ikut berubah setelah menyimpan atau menekan **Muat ulang data**. Cocok untuk kelompok kecil,
   bukan untuk puluhan penulis serentak. Kuota Sheets API ±60 permintaan/menit/pengguna.

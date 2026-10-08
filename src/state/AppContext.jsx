@@ -1,4 +1,4 @@
-import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import { config } from '../config.js';
 import * as auth from '../google/auth.js';
 import { AuthError, ConflictError, friendlyMessage } from '../google/errors.js';
@@ -16,6 +16,10 @@ import { createRegistryService, needsUpdate, removeBook, touchBook } from './boo
 
 auth.configureAuth(config.clientId);
 const DEFAULT_SHEET = parseSpreadsheetId(config.defaultSpreadsheetId) ?? '';
+
+// Galat saat masuk/melanjutkan sesi membawa alasan spesifik (popup diblokir/ditutup, izin tidak dicentang, dsb.);
+// jangan diganti pesan umum "sesi berakhir" milik friendlyMessage.
+const authMessage = (err) => (err instanceof AuthError && err.message ? err.message : friendlyMessage(err));
 
 const AppContext = createContext(null);
 export const useApp = () => useContext(AppContext);
@@ -55,8 +59,8 @@ const takeUrlSheet = () => {
 export function AppProvider({ children }) {
   const toast = useToast();
   const api = useMemo(
-    // 401 = Google menolak token (dicabut/kedaluwarsa/tidak valid): batalkan sesi agar kembali ke layar masuk.
-    () => createSheetsApi({ getToken: auth.getAccessToken, onUnauthorized: auth.invalidateSession }),
+    // 401 = Google menolak token (dicabut/kedaluwarsa/tidak valid): minta pembaruan (dialog "Lanjutkan") lalu ulangi sekali.
+    () => createSheetsApi({ getToken: auth.getAccessToken, onUnauthorized: auth.handleRejectedToken }),
     [],
   );
 
@@ -73,6 +77,8 @@ export function AppProvider({ children }) {
   const [books, setBooks] = useState([]);
   const [driveStatus, setDriveStatus] = useState(null);
   const [setupOpen, setSetupOpen] = useState(false);
+  const [reauthError, setReauthError] = useState('');
+  const reauth = useSyncExternalStore(auth.subscribeReauth, auth.getReauth);
 
   const email = session?.user?.email ?? null;
 
@@ -90,7 +96,7 @@ export function AppProvider({ children }) {
   const registry = useMemo(
     () =>
       createRegistryService({
-        drive: createDriveStore({ getToken: auth.getAccessToken, onUnauthorized: auth.invalidateSession }),
+        drive: createDriveStore({ getToken: auth.getAccessToken, onUnauthorized: auth.handleRejectedToken }),
         driveEnabled: () => Boolean(auth.getSession()?.driveAppData),
         storage: pref,
         prefix: config.storagePrefix,
@@ -100,6 +106,18 @@ export function AppProvider({ children }) {
   );
 
   useEffect(() => auth.subscribe(setSession), []);
+  // Saat tab kembali aktif, periksa masa token supaya ajakan "Lanjutkan" muncul sebelum pengguna menyimpan sesuatu.
+  useEffect(() => {
+    const check = () => {
+      if (document.visibilityState === 'visible') auth.checkExpiry();
+    };
+    document.addEventListener('visibilitychange', check);
+    window.addEventListener('focus', check);
+    return () => {
+      document.removeEventListener('visibilitychange', check);
+      window.removeEventListener('focus', check);
+    };
+  }, []);
   useEffect(() => {
     if (config.clientId || config.demo) auth.preload(config.clientId);
   }, []);
@@ -218,7 +236,8 @@ export function AppProvider({ children }) {
       try {
         await write(repoRef.current, dataRef.current);
       } catch (err) {
-        toast(friendlyMessage(err), 'error');
+        // Keluar selagi permintaan menunggu bukan galat yang perlu ditampilkan.
+        if (!(err instanceof AuthError && !auth.getSession())) toast(friendlyMessage(err), 'error');
         if (err instanceof ConflictError) {
           try { setData(await repoRef.current.load()); } catch { /* biarkan */ }
         }
@@ -261,10 +280,19 @@ export function AppProvider({ children }) {
         try {
           await auth.signIn(config.clientId);
         } catch (err) {
-          setLoginError(friendlyMessage(err));
+          setLoginError(authMessage(err));
         }
       },
       signOut: () => auth.signOut(),
+      /** Lanjutkan sesi yang tokennya habis (dari ketukan pada dialog "Lanjutkan"). */
+      async renewSession() {
+        setReauthError('');
+        try {
+          await auth.renew(config.clientId);
+        } catch (err) {
+          setReauthError(authMessage(err));
+        }
+      },
 
       async connectExisting(input) {
         const id = parseSpreadsheetId(input);
@@ -472,7 +500,7 @@ export function AppProvider({ children }) {
   // Tanpa sesi selalu tampil layar masuk, tanpa menunggu efek mengubah `phase` (menghindari satu render
   // dengan user === null saat keluar atau sesi berakhir).
   const value = {
-    phase: session ? phase : 'signedOut', fatal, books, driveStatus, setupOpen,
+    phase: session ? phase : 'signedOut', fatal, books, driveStatus, setupOpen, reauth, reauthError,
     bookTitle: books.find((b) => b.id === sheetId)?.title || data?.info?.org_name || sheetTitleRef.current, loginError, initInfo, session, user: session?.user ?? null,
     sheetId, sheetUrl: sheetId ? `https://docs.google.com/spreadsheets/d/${sheetId}/edit` : '',
     data, derived, period, selectPeriod, nowMonth, busy: busy > 0,

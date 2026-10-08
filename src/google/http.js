@@ -10,7 +10,9 @@ const defaultSleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
  * @param {() => Promise<string>} deps.getToken mengembalikan access token yang masih berlaku
  * @param {typeof fetch} [deps.fetchImpl]
  * @param {(ms: number) => Promise<void>} [deps.sleep]
- * @param {() => void} [deps.onUnauthorized] dipanggil saat Google membalas 401 (token ditolak)
+ * @param {() => boolean | Promise<boolean>} [deps.onUnauthorized] dipanggil saat Google membalas 401 (token ditolak).
+ *   Bila mengembalikan true, token dianggap sudah diperbarui dan permintaan diulang SEKALI (401 berarti permintaan belum
+ *   diproses, jadi aman diulang termasuk POST). Selain itu galat AuthError dilempar.
  */
 export function createHttp({
   getToken,
@@ -30,6 +32,7 @@ export function createHttp({
       else if (value !== undefined) url.searchParams.set(key, value);
     }
 
+    let retriedAfter401 = false;
     for (let attempt = 0; ; attempt += 1) {
       const token = await getToken();
       let res;
@@ -47,6 +50,11 @@ export function createHttp({
         return as === 'text' ? res.text() : res.json();
       }
 
+      if (res.status === 401 && !retriedAfter401) {
+        retriedAfter401 = true;
+        if (await onUnauthorized?.()) continue; // token baru akan diminta lewat getToken() pada putaran berikutnya
+      }
+
       // 429 berarti permintaan belum diproses sehingga aman diulang. Galat 5xx hanya diulang untuk metode
       // idempoten (GET/PUT/PATCH); mengulang POST (append, create) berisiko menggandakan data.
       const idempotent = method === 'GET' || method === 'PUT' || method === 'PATCH';
@@ -56,9 +64,7 @@ export function createHttp({
         await sleep(retryAfter > 0 ? retryAfter * 1000 : 500 * 2 ** attempt);
         continue;
       }
-      const error = await toApiError(res, method);
-      if (error instanceof AuthError) onUnauthorized?.();
-      throw error;
+      throw await toApiError(res, method);
     }
   }
 

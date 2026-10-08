@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { bookLabel } from './components/DriveNotice.jsx';
+import { ReauthPrompt } from './components/ReauthPrompt.jsx';
 import { BrandMark, ToastProvider } from './components/ui.jsx';
 import { periodTitle } from './lib/selectors.js';
 import { AppProvider, useApp } from './state/AppContext.jsx';
@@ -126,6 +127,7 @@ export default function App() {
     <ToastProvider>
       <AppProvider>
         <Gate />
+        <ReauthPrompt />
       </AppProvider>
     </ToastProvider>
   );
