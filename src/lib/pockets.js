@@ -16,3 +16,29 @@ export function splitAccounts(accounts) {
   for (const a of accounts) (isPocketId(a.id) ? pockets : main).push(a);
   return { accounts: main, pockets };
 }
+
+/** Pisahkan baris buku kas: mutasi kantong utama (termasuk Umum) dan mutasi kantong patungan. */
+export function splitLines(lines, pockets) {
+  const ids = new Set(pockets.map((p) => p.id));
+  const main = [];
+  const pocket = [];
+  for (const l of lines) (ids.has(l.accountId) ? pocket : main).push(l);
+  return { main, pocket };
+}
+
+/**
+ * Kantong yang masih perlu tampil di pilihan akun: patungannya masih buka, atau saldonya belum nol
+ * (sisa yang perlu dipakai atau dipindahkan). Kantong tanpa patungan (dihapus) hanya tampil bila masih bersaldo.
+ * @param {object[]} pockets
+ * @param {object[]} collections
+ * @param {Map<string, number>} balances accountId -> saldo saat ini
+ */
+export function visiblePockets(pockets, collections, balances) {
+  const byAccount = new Map(collections.map((c) => [c.accountId, c]));
+  return pockets.filter((p) => {
+    const balance = balances.get(p.id) ?? 0;
+    if (balance !== 0) return true;
+    const collection = byAccount.get(p.id);
+    return Boolean(p.active && collection && !collection.closed);
+  });
+}

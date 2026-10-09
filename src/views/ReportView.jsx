@@ -29,8 +29,8 @@ export default function ReportView() {
     );
   }
 
-  const income = statement.total.in - statement.transferVolume;
-  const expense = statement.total.out - statement.transferVolume;
+  const income = statement.total.in - statement.transferIn;
+  const expense = statement.total.out - statement.transferOut;
   const arrearsRows = dues.rows.filter((r) => r.arrears > 0).sort((a, b) => b.arrears - a.arrears);
 
   return (
@@ -91,9 +91,9 @@ export default function ReportView() {
             </tfoot>
           </table>
         </div>
-        {statement.transferVolume > 0 && (
+        {statement.transferIn > 0 && (
           <p className="hint">
-            Kolom Masuk/Keluar sudah termasuk perpindahan saldo antar akun sebesar {formatRupiah(statement.transferVolume)} yang
+            Kolom Masuk/Keluar sudah termasuk perpindahan saldo antar akun sebesar {formatRupiah(statement.transferIn)} yang
             saling meniadakan pada total.
           </p>
         )}
