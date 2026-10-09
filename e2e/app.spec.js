@@ -1,6 +1,6 @@
 import { expect, test } from '@playwright/test';
 import {
-  addAccount, addMembers, addPeriod, freezeClock, loginAndCreateSheet, nav, pay, saveDialog,
+  addMembers, addPeriod, freezeClock, loginAndCreateSheet, nav, pay, saveDialog, setupAccounts,
 } from './helpers.js';
 
 test.beforeEach(async ({ page }) => {
@@ -28,10 +28,8 @@ test('alur lengkap: akun, periode, anggota, iuran, buku kas, laporan', async ({ 
   await expect(page.getByRole('heading', { name: 'Mulai dari sini' })).toBeVisible();
 
   // --- akun kas
-  await addAccount(page, 'Kas Kelas');
-  await addAccount(page, 'Dana Darurat');
-  await addAccount(page, 'Tabungan Wisata');
-  await expect(page.getByRole('row', { name: /Dana Darurat/ })).toBeVisible();
+  await setupAccounts(page, [{ name: 'Kas Kelas' }, { name: 'Dana Darurat' }, { name: 'Tabungan Wisata' }], { mode: 'multi' });
+  await expect(page.getByLabel('Nama akun 2', { exact: true })).toHaveValue('Dana Darurat');
 
   // --- periode: total alokasi tidak boleh melebihi iuran
   const dialog = await addPeriod(page, {

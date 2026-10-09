@@ -7,7 +7,11 @@ dan **login Google** sebagai pintu masuk. JavaScript saja (React + Vite), tanpa 
 
 - **Tabel iuran 1 tahun**: anggota × 12 bulan. Bulan mulai bebas (mis. Juli 2026 – Juni 2027), tidak harus Januari.
   Klik sel untuk mencatat pembayaran (penuh, sebagian, atau cicilan) atau membatalkannya.
-- **Alokasi ke akun kas**: tiap periode punya iuran bulanan dan pembagiannya ke akun kas (Kas Kelas, Dana Darurat,
+- **Mode Sederhana atau Multi akun kas** (Pengaturan → *Tukar mode*): **Sederhana** (bawaan) = satu akun kas untuk semua
+  iuran, tanpa alokasi dan pindah saldo. **Multi akun kas** = beberapa "kantong" seperti di bawah. Beralih ke Sederhana
+  hanya bisa bila tinggal satu akun aktif (akun tidak dihapus, hanya dinonaktifkan). Mode tersimpan di sheet *Info*
+  (kunci `account_mode`).
+- **Alokasi ke akun kas** (mode Multi): tiap periode punya iuran bulanan dan pembagiannya ke akun kas (Kas Kelas, Dana Darurat,
   Tabungan Wisata, dst.). **Total alokasi tidak boleh melebihi iuran** (divalidasi di form); selisihnya masuk ke "Umum".
 - **Buku kas**: seluruh uang masuk/keluar dengan saldo berjalan, filter per akun dan per periode. Iuran masuk
   otomatis; pengeluaran, pemasukan lain, dan pindah saldo antar akun dicatat manual.
