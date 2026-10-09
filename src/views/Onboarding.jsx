@@ -2,18 +2,23 @@ import { useApp } from '../state/AppContext.jsx';
 
 /** Daftar langkah awal: akun kas -> periode -> anggota. */
 export function Onboarding() {
-  const { data } = useApp();
+  const { data, accountMode } = useApp();
+  const simple = accountMode === 'simple';
   const steps = [
     {
       done: data.accounts.length > 0,
-      title: 'Tambah akun kas',
-      text: 'Mis. Kas Kelas, Dana Darurat, Tabungan Wisata.',
+      title: 'Atur nama kas & akun kas',
+      text: simple
+        ? 'Isi nama kas dan saldo awal. Pilih mode Multi akun kas bila iuran perlu dibagi ke beberapa kantong.'
+        : 'Mis. Kas Kelas, Dana Darurat, Tabungan Wisata.',
       href: '#/pengaturan',
     },
     {
       done: data.periods.length > 0,
-      title: 'Buat periode & atur alokasi',
-      text: 'Pilih bulan mulai, besaran iuran, dan pembagiannya ke tiap akun kas.',
+      title: simple ? 'Buat periode' : 'Buat periode & atur alokasi',
+      text: simple
+        ? 'Pilih bulan mulai dan besaran iuran per anggota per bulan.'
+        : 'Pilih bulan mulai, besaran iuran, dan pembagiannya ke tiap akun kas.',
       href: '#/pengaturan',
     },
     {

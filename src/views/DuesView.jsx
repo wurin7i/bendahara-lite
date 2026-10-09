@@ -4,14 +4,15 @@ import { UNALLOCATED_ID, UNALLOCATED_NAME, mergeSplits, splitPayment } from '../
 import { buildDuesTable, highlightMonth } from '../lib/dues.js';
 import { formatNumber, formatRupiah } from '../lib/money.js';
 import { formatDate, isISODate, monthLabel, todayISO } from '../lib/months.js';
-import { periodAllocationSummary, periodAllocations, periodSubtitle } from '../lib/selectors.js';
+import { paymentAllocations, periodAllocationSummary, periodSubtitle } from '../lib/selectors.js';
 import { useApp } from '../state/AppContext.jsx';
 import { Onboarding } from './Onboarding.jsx';
 
 const STATUS_TEXT = { paid: 'lunas', partial: 'sebagian', due: 'belum bayar', upcoming: 'belum jatuh tempo', na: 'tidak ditagih' };
 
 export default function DuesView() {
-  const { data, period, nowMonth } = useApp();
+  const { data, period, nowMonth, accountMode } = useApp();
+  const simple = accountMode === 'simple';
   const [target, setTarget] = useState(null); // { member, month }
 
   const table = useMemo(
@@ -65,18 +66,20 @@ export default function DuesView() {
         )}
       </div>
 
-      <div className="alloc-line">
-        <span>Pembagian iuran:</span>
-        {summary.allocations.map((a) => (
-          <span key={a.accountId}>
-            {data.accounts.find((x) => x.id === a.accountId)?.name} <b>{formatNumber(a.amount)}</b>
-          </span>
-        ))}
-        {summary.remainder > 0 && (
-          <span>Umum <b>{formatNumber(summary.remainder)}</b></span>
-        )}
-        {summary.allocations.length === 0 && <span>belum diatur (semua masuk Umum), atur di Pengaturan</span>}
-      </div>
+      {!simple && (
+        <div className="alloc-line">
+          <span>Pembagian iuran:</span>
+          {summary.allocations.map((a) => (
+            <span key={a.accountId}>
+              {data.accounts.find((x) => x.id === a.accountId)?.name} <b>{formatNumber(a.amount)}</b>
+            </span>
+          ))}
+          {summary.remainder > 0 && (
+            <span>Umum <b>{formatNumber(summary.remainder)}</b></span>
+          )}
+          {summary.allocations.length === 0 && <span>belum diatur (semua masuk Umum), atur di Pengaturan</span>}
+        </div>
+      )}
 
       {table.rows.length === 0 ? (
         <div className="empty card">
@@ -154,7 +157,8 @@ export default function DuesView() {
 }
 
 function PaymentDialog({ period, member, month, onClose }) {
-  const { data, actions } = useApp();
+  const { data, actions, accountMode } = useApp();
+  const simple = accountMode === 'simple';
   const payments = data.payments
     .filter((p) => p.periodId === period.id && p.memberId === member.id && p.month === month)
     .sort((a, b) => a.date.localeCompare(b.date) || a.createdAt.localeCompare(b.createdAt));
@@ -168,7 +172,7 @@ function PaymentDialog({ period, member, month, onClose }) {
 
   const valid = Number.isSafeInteger(amount) && amount > 0 && isISODate(date);
   const preview = valid
-    ? splitPayment(amount, periodAllocations(data, period.id), mergeSplits(payments.map((p) => p.split)))
+    ? splitPayment(amount, paymentAllocations(data, period.id, accountMode), mergeSplits(payments.map((p) => p.split)))
     : null;
   const nameOf = (id) => (id === UNALLOCATED_ID ? UNALLOCATED_NAME : data.accounts.find((a) => a.id === id)?.name ?? id);
 
@@ -218,7 +222,7 @@ function PaymentDialog({ period, member, month, onClose }) {
           <input type="text" value={note} onChange={(e) => setNote(e.target.value)} placeholder="mis. transfer BCA" />
         </Field>
 
-        {preview && (
+        {preview && !simple && (
           <div className="split-preview" aria-label="Pembagian ke akun kas">
             <div className="muted small" style={{ marginBottom: '0.2rem' }}>Akan dibagi ke akun kas:</div>
             {Object.entries(preview).map(([id, value]) => (
@@ -228,7 +232,9 @@ function PaymentDialog({ period, member, month, onClose }) {
         )}
         {valid && amount > remaining && (
           <div className="notice warn small">
-            Jumlah melebihi kekurangan bulan ini. Kelebihannya masuk ke “Umum”. Untuk membayar bulan lain, catat di sel bulan tersebut.
+            {simple
+              ? 'Jumlah melebihi kekurangan bulan ini. Untuk membayar bulan lain, catat di sel bulan tersebut.'
+              : 'Jumlah melebihi kekurangan bulan ini. Kelebihannya masuk ke “Umum”. Untuk membayar bulan lain, catat di sel bulan tersebut.'}
           </div>
         )}
 

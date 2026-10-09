@@ -22,13 +22,26 @@ export async function saveDialog(page, name = 'Simpan') {
   await expect(dialog).toBeHidden();
 }
 
-export async function addAccount(page, name, opening) {
+/**
+ * Isi kartu "Kas & akun kas" di Pengaturan lalu simpan. accounts: [{ name, opening? }].
+ * mode 'multi' menukar mode dulu dan memakai baris berulang; 'simple' (bawaan) hanya satu akun.
+ */
+export async function setupAccounts(page, accounts, { mode = 'simple', org } = {}) {
   await nav(page, 'Pengaturan');
-  await page.getByRole('button', { name: '+ Tambah akun' }).click();
-  const dialog = page.getByRole('dialog');
-  await dialog.getByLabel('Nama akun').fill(name);
-  if (opening) await dialog.getByLabel('Saldo awal').fill(String(opening));
-  await saveDialog(page);
+  if (org !== undefined) await page.getByLabel('Nama kas / organisasi').fill(org);
+  const multi = mode === 'multi';
+  if (multi && (await page.getByRole('button', { name: '+ Tambah akun' }).count()) === 0) {
+    await page.getByRole('button', { name: 'Tukar mode' }).click();
+  }
+  for (const [i, account] of accounts.entries()) {
+    const suffix = multi ? ` ${i + 1}` : '';
+    if (multi && i > 0) await page.getByRole('button', { name: '+ Tambah akun' }).click();
+    await page.getByLabel(`Nama akun${suffix}`, { exact: true }).fill(account.name);
+    if (account.opening) await page.getByLabel(`Saldo awal${suffix}`, { exact: true }).fill(String(account.opening));
+  }
+  const save = page.getByRole('button', { name: 'Simpan', exact: true });
+  await save.click();
+  await expect(save).toBeDisabled(); // tersimpan: tidak ada perubahan tersisa
 }
 
 /** Buat periode Jul 2026 dengan iuran 100.000. allocations: { 'Kas Kelas': 50000, ... } */

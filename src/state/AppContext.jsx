@@ -11,7 +11,8 @@ import { pickDefaultPeriod } from '../lib/dues.js';
 import { newId } from '../lib/ids.js';
 import { accountStatement, buildLedgerLines } from '../lib/ledger.js';
 import { currentMonthKey } from '../lib/months.js';
-import { periodAllocations } from '../lib/selectors.js';
+import { ACCOUNT_MODES, MODE_INFO_KEY, planAccountSave, resolveAccountMode } from '../lib/accountMode.js';
+import { paymentAllocations } from '../lib/selectors.js';
 import { createRegistryService, needsUpdate, removeBook, touchBook } from './books.js';
 
 auth.configureAuth(config.clientId);
@@ -365,8 +366,18 @@ export function AppProvider({ children }) {
         else setPhase('noSheet');
       },
 
-      async setOrgName(name) {
-        const ok = await run((r) => r.upsert('info', [{ id: 'org_name', value: name.trim() }]), 'Nama disimpan');
+      /** Simpan form Pengaturan: nama kas, mode akun, dan akun kas sekaligus (akun ditulis lebih dulu, mode terakhir). */
+      async saveCashSetup({ orgName: name, mode, rows }) {
+        const ok = await run(async (r, d) => {
+          need(ACCOUNT_MODES.includes(mode), 'Mode akun tidak dikenal.');
+          const { toUpdate, toAdd } = planAccountSave(rows, d.accounts, mode);
+          if (toUpdate.length) await r.update('accounts', toUpdate);
+          if (toAdd.length) await r.add('accounts', toAdd);
+          await r.upsert('info', [
+            { id: 'org_name', value: name.trim() },
+            { id: MODE_INFO_KEY, value: mode },
+          ]);
+        }, 'Pengaturan disimpan');
         if (ok) remember(auth.getSession().user, sheetIdRef.current, name.trim() || sheetTitleRef.current);
         return ok;
       },
@@ -380,28 +391,6 @@ export function AppProvider({ children }) {
         }, 'Anggota disimpan'),
       addMembers: (names, startMonth) =>
         run((r) => r.add('members', names.map((name) => ({ name, active: true, startMonth }))), `${names.length} anggota ditambahkan`),
-
-      /* akun kas */
-      saveAccount: (account) =>
-        run((r, d) => {
-          need(account.name.trim(), 'Nama akun wajib diisi.');
-          const record = { ...account, name: account.name.trim() };
-          if (account.id) return r.update('accounts', [record]);
-          const order = d.accounts.reduce((m, a) => Math.max(m, a.order), 0) + 1;
-          return r.add('accounts', [{ ...record, order }]);
-        }, 'Akun kas disimpan'),
-      moveAccount: (id, direction) =>
-        run((r, d) => {
-          const list = [...d.accounts];
-          const from = list.findIndex((a) => a.id === id);
-          const to = from + direction;
-          if (from < 0 || to < 0 || to >= list.length) return Promise.resolve();
-          [list[from], list[to]] = [list[to], list[from]];
-          const changed = list
-            .map((a, i) => ({ ...a, order: i + 1 }))
-            .filter((a) => d.accounts.find((x) => x.id === a.id).order !== a.order);
-          return r.update('accounts', changed);
-        }),
 
       /* periode */
       savePeriod: ({ period, allocations }) =>
@@ -435,7 +424,8 @@ export function AppProvider({ children }) {
         run((r, d) => {
           need(Number.isSafeInteger(amount) && amount > 0, 'Jumlah harus lebih dari 0.');
           const prior = d.payments.filter((p) => p.periodId === period.id && p.memberId === memberId && p.month === month);
-          const split = splitPayment(amount, periodAllocations(d, period.id), mergeSplits(prior.map((p) => p.split)));
+          const allocations = paymentAllocations(d, period.id, resolveAccountMode(d.info, d.accounts));
+          const split = splitPayment(amount, allocations, mergeSplits(prior.map((p) => p.split)));
           return r.add('payments', [{ periodId: period.id, memberId, month, amount, date, note: note.trim(), split }]);
         }, 'Iuran dicatat'),
       voidPayment: (payment) => run((r) => r.remove('payments', [payment]), 'Pembayaran dibatalkan'),
@@ -505,6 +495,7 @@ export function AppProvider({ children }) {
     sheetId, sheetUrl: sheetId ? `https://docs.google.com/spreadsheets/d/${sheetId}/edit` : '',
     data, derived, period, selectPeriod, nowMonth, busy: busy > 0,
     orgName: data?.info?.org_name || '',
+    accountMode: data ? resolveAccountMode(data.info, data.accounts) : 'simple',
     reload, actions, config,
   };
   return <AppContext.Provider value={value}>{children}</AppContext.Provider>;

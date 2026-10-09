@@ -17,7 +17,8 @@ function useAccountOptions(currentIds = []) {
 }
 
 export default function LedgerView() {
-  const { data, derived, period, actions } = useApp();
+  const { data, derived, period, actions, accountMode } = useApp();
+  const simple = accountMode === 'simple'; // satu akun: tanpa filter akun, kolom Akun, dan pindah saldo
   const [accountId, setAccountId] = useState('');
   const [scope, setScope] = useState('period');
   const [modal, setModal] = useState(null); // { mode: 'out' | 'in' | 'transfer', tx? }
@@ -32,6 +33,7 @@ export default function LedgerView() {
   const nameOf = (id) => (id === UNALLOCATED_ID ? UNALLOCATED_NAME : data.accounts.find((a) => a.id === id)?.name ?? id);
   const filterOptions = useAccountOptions();
   const noAccounts = data.accounts.length === 0;
+  const showAccountCol = !simple && !accountId;
 
   return (
     <>
@@ -40,7 +42,7 @@ export default function LedgerView() {
           Buku Kas
           <span className="sub">
             {scope === 'period' && period ? periodRangeLabel(period.startMonth) : 'Semua waktu'}
-            {accountId ? ` · ${nameOf(accountId)}` : ' · semua akun'}
+            {!simple && (accountId ? ` · ${nameOf(accountId)}` : ' · semua akun')}
           </span>
         </h1>
         <div className="toolbar no-print">
@@ -50,20 +52,26 @@ export default function LedgerView() {
           <button type="button" className="btn" onClick={() => setModal({ mode: 'in' })} disabled={noAccounts && !derived.unallocatedAvailable}>
             + Pemasukan lain
           </button>
-          <button type="button" className="btn" onClick={() => setModal({ mode: 'transfer' })} disabled={filterOptions.length < 2}>
-            ⇄ Pindah saldo
-          </button>
+          {!simple && (
+            <button type="button" className="btn" onClick={() => setModal({ mode: 'transfer' })} disabled={filterOptions.length < 2}>
+              ⇄ Pindah saldo
+            </button>
+          )}
         </div>
       </div>
 
       <div className="toolbar no-print" style={{ marginBottom: '0.75rem' }}>
-        <label className="sr-only" htmlFor="ledger-account">Akun</label>
-        <select id="ledger-account" value={accountId} onChange={(e) => setAccountId(e.target.value)}>
-          <option value="">Semua akun</option>
-          {filterOptions.map((o) => (
-            <option key={o.id} value={o.id}>{o.name}</option>
-          ))}
-        </select>
+        {!simple && (
+          <>
+            <label className="sr-only" htmlFor="ledger-account">Akun</label>
+            <select id="ledger-account" value={accountId} onChange={(e) => setAccountId(e.target.value)}>
+              <option value="">Semua akun</option>
+              {filterOptions.map((o) => (
+                <option key={o.id} value={o.id}>{o.name}</option>
+              ))}
+            </select>
+          </>
+        )}
         <label className="sr-only" htmlFor="ledger-scope">Rentang</label>
         <select id="ledger-scope" value={scope} onChange={(e) => setScope(e.target.value)} disabled={!period}>
           <option value="period">Periode terpilih</option>
@@ -85,7 +93,7 @@ export default function LedgerView() {
               <tr>
                 <th>Tanggal</th>
                 <th>Keterangan</th>
-                {!accountId && <th>Akun</th>}
+                {showAccountCol && <th>Akun</th>}
                 <th className="num">Masuk</th>
                 <th className="num">Keluar</th>
                 <th className="num">Saldo</th>
@@ -95,13 +103,13 @@ export default function LedgerView() {
             <tbody>
               <tr className="muted-row">
                 <td />
-                <td colSpan={accountId ? 2 : 3}><em>Saldo awal</em></td>
+                <td colSpan={showAccountCol ? 3 : 2}><em>Saldo awal</em></td>
                 <td className="num" />
                 <td className="num"><strong>{formatNumber(view.opening)}</strong></td>
                 <td className="no-print" />
               </tr>
               {view.entries.length === 0 && (
-                <tr><td colSpan={accountId ? 6 : 7} className="muted" style={{ textAlign: 'center', padding: '1.5rem' }}>Belum ada transaksi pada rentang ini.</td></tr>
+                <tr><td colSpan={showAccountCol ? 7 : 6} className="muted" style={{ textAlign: 'center', padding: '1.5rem' }}>Belum ada transaksi pada rentang ini.</td></tr>
               )}
               {view.entries.map((e) => {
                 const names = e.accountIds.map(nameOf);
@@ -114,7 +122,7 @@ export default function LedgerView() {
                       {e.source === 'dues' && <span className="tag dues">Iuran</span>}
                       {e.source === 'transfer' && <span className="tag">Pindah</span>}
                     </td>
-                    {!accountId && (
+                    {showAccountCol && (
                       <td className="small" title={names.join(', ')}>
                         {names[0]}{names.length > 1 ? ` +${names.length - 1}` : ''}
                       </td>
@@ -142,7 +150,7 @@ export default function LedgerView() {
             </tbody>
             <tfoot>
               <tr>
-                <th colSpan={accountId ? 2 : 3}>Total / Saldo akhir</th>
+                <th colSpan={showAccountCol ? 3 : 2}>Total / Saldo akhir</th>
                 <td className="num">{formatNumber(view.totalIn)}</td>
                 <td className="num">{formatNumber(view.totalOut)}</td>
                 <td className="num">{formatNumber(view.closing)}</td>
@@ -153,7 +161,8 @@ export default function LedgerView() {
         </div>
       )}
       <p className="hint">
-        Iuran anggota masuk otomatis dari menu Iuran. Pindah saldo antar akun tercatat sebagai pasangan keluar/masuk dan tidak mengubah total kas.
+        Iuran anggota masuk otomatis dari menu Iuran.
+        {!simple && ' Pindah saldo antar akun tercatat sebagai pasangan keluar/masuk dan tidak mengubah total kas.'}
       </p>
 
       {modal && <TransactionModal {...modal} onClose={() => setModal(null)} />}
@@ -164,9 +173,10 @@ export default function LedgerView() {
 const TITLES = { out: 'Catat pengeluaran', in: 'Catat pemasukan lain', transfer: 'Pindah saldo antar akun' };
 
 function TransactionModal({ mode, tx, onClose }) {
-  const { data, derived, actions } = useApp();
+  const { data, derived, actions, accountMode } = useApp();
   const editing = Boolean(tx);
   const options = useAccountOptions(tx ? [tx.accountId] : []);
+  const pickAccount = accountMode !== 'simple' || options.length > 1;
 
   const [date, setDate] = useState(tx?.date ?? todayISO());
   const [accountId, setAccountId] = useState(tx?.accountId ?? options[0]?.id ?? '');
@@ -204,13 +214,15 @@ function TransactionModal({ mode, tx, onClose }) {
           <Field label="Tanggal">
             <input type="date" value={date} onChange={(e) => setDate(e.target.value)} required />
           </Field>
-          <Field label={mode === 'transfer' ? 'Dari akun' : 'Akun kas'}>
-            <select value={accountId} onChange={(e) => setAccountId(e.target.value)}>
-              {options.map((o) => (
-                <option key={o.id} value={o.id}>{o.name}</option>
-              ))}
-            </select>
-          </Field>
+          {pickAccount && (
+            <Field label={mode === 'transfer' ? 'Dari akun' : 'Akun kas'}>
+              <select value={accountId} onChange={(e) => setAccountId(e.target.value)}>
+                {options.map((o) => (
+                  <option key={o.id} value={o.id}>{o.name}</option>
+                ))}
+              </select>
+            </Field>
+          )}
         </div>
         {mode === 'transfer' && (
           <Field label="Ke akun">

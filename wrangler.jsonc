@@ -1,0 +1,8 @@
+{
+  "name": "bendahara-lite",
+  "compatibility_date": "2026-10-09",
+  // Aplikasi statis hasil `npm run build`. Routing memakai hash (#/), jadi tidak perlu fallback SPA.
+  "assets": { "directory": "./dist" },
+  // Wajib untuk `wrangler preview`; boleh kosong. Aset & compatibility tetap di tingkat atas.
+  "previews": {}
+}

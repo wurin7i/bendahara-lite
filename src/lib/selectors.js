@@ -1,5 +1,6 @@
 // Pemilih data turunan yang dipakai beberapa tampilan.
 
+import { primaryAccount } from './accountMode.js';
 import { sumAmounts } from './allocation.js';
 import { periodRangeLabel } from './months.js';
 
@@ -9,6 +10,16 @@ export function periodAllocations(data, periodId) {
   return data.accounts
     .filter((a) => (amounts.get(a.id) ?? 0) > 0)
     .map((a) => ({ accountId: a.id, amount: amounts.get(a.id) }));
+}
+
+/**
+ * Alokasi yang dipakai untuk membagi pembayaran. Mode Sederhana: seluruh pembayaran (termasuk kelebihan bayar) masuk
+ * akun tunggal, bukan "Umum". Mode Multi: alokasi periode berurutan seperti biasa.
+ */
+export function paymentAllocations(data, periodId, mode) {
+  if (mode !== 'simple') return periodAllocations(data, periodId);
+  const primary = primaryAccount(data.accounts);
+  return primary ? [{ accountId: primary.id, amount: Number.MAX_SAFE_INTEGER }] : [];
 }
 
 export function periodAllocationSummary(data, period) {
