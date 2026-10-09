@@ -5,6 +5,7 @@ import { BrandMark, ToastProvider } from './components/ui.jsx';
 import { periodTitle } from './lib/selectors.js';
 import { AppProvider, useApp } from './state/AppContext.jsx';
 import { ErrorView, LoadingView, LoginView, NeedInitView, SetupView } from './views/AuthViews.jsx';
+import CollectionsView from './views/CollectionsView.jsx';
 import DuesView from './views/DuesView.jsx';
 import LedgerView from './views/LedgerView.jsx';
 import MembersView from './views/MembersView.jsx';
@@ -13,6 +14,8 @@ import SettingsView from './views/SettingsView.jsx';
 
 const ROUTES = [
   { id: 'iuran', label: 'Iuran', View: DuesView },
+  // Tampil hanya bila fitur Patungan sudah diaktifkan di Pengaturan.
+  { id: 'patungan', label: 'Patungan', View: CollectionsView, feature: 'collections' },
   { id: 'kas', label: 'Buku Kas', View: LedgerView },
   { id: 'laporan', label: 'Laporan', View: ReportView },
   { id: 'anggota', label: 'Anggota', View: MembersView },
@@ -60,9 +63,10 @@ function BookPicker() {
 }
 
 function Shell() {
-  const { data, period, selectPeriod, user, actions, busy, config } = useApp();
+  const { data, period, selectPeriod, user, actions, busy, config, collectionsEnabled } = useApp();
   const route = useRoute();
-  const { View } = ROUTES.find((r) => r.id === route);
+  const routes = ROUTES.filter((r) => !r.feature || (r.feature === 'collections' && collectionsEnabled));
+  const { View, id: current } = routes.find((r) => r.id === route) ?? routes[0];
 
   return (
     <>
@@ -99,8 +103,8 @@ function Shell() {
           </div>
         </div>
         <nav className="tabs no-print" aria-label="Menu utama">
-          {ROUTES.map((r) => (
-            <a key={r.id} href={`#/${r.id}`} aria-current={r.id === route ? 'page' : undefined}>{r.label}</a>
+          {routes.map((r) => (
+            <a key={r.id} href={`#/${r.id}`} aria-current={r.id === current ? 'page' : undefined}>{r.label}</a>
           ))}
         </nav>
       </header>

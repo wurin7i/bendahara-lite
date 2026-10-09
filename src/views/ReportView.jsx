@@ -11,10 +11,16 @@ export default function ReportView() {
   const { data, derived, period, nowMonth, orgName } = useApp();
 
   const range = period ? periodRange(period.startMonth) : { from: null, to: null };
+  // Kas utama dan kantong patungan direkap terpisah: uang patungan bukan milik kas utama.
   const statement = useMemo(
-    () => accountStatement(data.accounts, derived.lines, range),
+    () => accountStatement(data.accounts, derived.parts.main, range),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [data.accounts, derived.lines, range.from, range.to],
+    [data.accounts, derived.parts, range.from, range.to],
+  );
+  const pocketStatement = useMemo(
+    () => accountStatement(data.pockets, derived.parts.pocket, range),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [data.pockets, derived.parts, range.from, range.to],
   );
   const dues = useMemo(
     () => (period ? buildDuesTable({ period, members: data.members, payments: data.payments, nowMonth }) : null),
@@ -32,6 +38,9 @@ export default function ReportView() {
   const income = statement.total.in - statement.transferIn;
   const expense = statement.total.out - statement.transferOut;
   const arrearsRows = dues.rows.filter((r) => r.arrears > 0).sort((a, b) => b.arrears - a.arrears);
+  const collectionOf = new Map(data.collections.map((c) => [c.accountId, c]));
+  const pocketRows = pocketStatement.rows.filter((r) => r.opening || r.in || r.out || r.closing);
+  const pocketsNow = derived.pocketsOverall.total.closing;
 
   return (
     <>
@@ -48,7 +57,11 @@ export default function ReportView() {
       </div>
 
       <div className="stats">
-        <Stat label="Saldo kas saat ini" value={formatRupiah(derived.overall.total.closing)} sub="seluruh transaksi yang tercatat" />
+        <Stat
+          label="Saldo kas saat ini"
+          value={formatRupiah(derived.overall.total.closing)}
+          sub={pocketsNow ? `di luar kantong patungan ${formatRupiah(pocketsNow)}` : 'seluruh transaksi yang tercatat'}
+        />
         <Stat label="Saldo akhir periode" value={formatRupiah(statement.total.closing)} sub={`per ${formatDate(range.to)}`} tone="good" />
         <Stat label="Pemasukan periode" value={formatRupiah(income)} sub="iuran + pemasukan lain" />
         <Stat label="Pengeluaran periode" value={formatRupiah(expense)} />
@@ -91,13 +104,65 @@ export default function ReportView() {
             </tfoot>
           </table>
         </div>
-        {statement.transferIn > 0 && (
+        {statement.transferIn > 0 && statement.transferIn === statement.transferOut && (
           <p className="hint">
             Kolom Masuk/Keluar sudah termasuk perpindahan saldo antar akun sebesar {formatRupiah(statement.transferIn)} yang
             saling meniadakan pada total.
           </p>
         )}
+        {statement.transferIn !== statement.transferOut && (
+          <p className="hint">
+            Kolom Masuk/Keluar sudah termasuk pindah saldo (masuk {formatRupiah(statement.transferIn)}, keluar{' '}
+            {formatRupiah(statement.transferOut)}), antara lain dengan kantong patungan. Pindah saldo tidak dihitung sebagai
+            pemasukan atau pengeluaran.
+          </p>
+        )}
       </section>
+
+      {pocketRows.length > 0 && (
+        <section className="card" aria-labelledby="rep-pockets">
+          <div className="card-head">
+            <h2 id="rep-pockets">Kantong patungan</h2>
+          </div>
+          <div className="table-scroll">
+            <table className="simple">
+              <thead>
+                <tr>
+                  <th>Patungan</th>
+                  <th className="num">Saldo awal</th>
+                  <th className="num">Masuk</th>
+                  <th className="num">Keluar</th>
+                  <th className="num">Saldo akhir</th>
+                </tr>
+              </thead>
+              <tbody>
+                {pocketRows.map((r) => (
+                  <tr key={r.accountId}>
+                    <td>{r.name}{collectionOf.get(r.accountId)?.closed && <span className="tag">ditutup</span>}</td>
+                    <td className="num">{formatNumber(r.opening)}</td>
+                    <td className="num">{formatNumber(r.in)}</td>
+                    <td className="num">{formatNumber(r.out)}</td>
+                    <td className="num"><strong style={r.closing < 0 ? { color: 'var(--danger)' } : undefined}>{formatNumber(r.closing)}</strong></td>
+                  </tr>
+                ))}
+              </tbody>
+              <tfoot>
+                <tr>
+                  <th>Total</th>
+                  <td className="num">{formatNumber(pocketStatement.total.opening)}</td>
+                  <td className="num">{formatNumber(pocketStatement.total.in)}</td>
+                  <td className="num">{formatNumber(pocketStatement.total.out)}</td>
+                  <td className="num">{formatNumber(pocketStatement.total.closing)}</td>
+                </tr>
+              </tfoot>
+            </table>
+          </div>
+          <p className="hint">
+            Uang patungan dipegang terpisah dan tidak termasuk saldo kas di atas. Sisa dana dipindahkan ke kas utama
+            lewat Pindah saldo.
+          </p>
+        </section>
+      )}
 
       <section className="card" aria-labelledby="rep-dues">
         <div className="card-head">

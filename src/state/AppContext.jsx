@@ -13,6 +13,8 @@ import { accountStatement, buildLedgerLines } from '../lib/ledger.js';
 import { currentMonthKey } from '../lib/months.js';
 import { ACCOUNT_MODES, MODE_INFO_KEY, planAccountSave, resolveAccountMode } from '../lib/accountMode.js';
 import { paymentAllocations } from '../lib/selectors.js';
+import { KIND_FIXED, validateCollection } from '../lib/collections.js';
+import { POCKET_PREFIX, splitLines, visiblePockets } from '../lib/pockets.js';
 import { createRegistryService, needsUpdate, removeBook, touchBook } from './books.js';
 
 auth.configureAuth(config.clientId);
@@ -260,7 +262,7 @@ export function AppProvider({ children }) {
   const reload = useCallback(async () => {
     setBusy((n) => n + 1);
     try {
-      setData(await repoRef.current.load());
+      setData(await repoRef.current.load({ refresh: true })); // kenali juga fitur yang diaktifkan dari perangkat lain
       toast('Data dimuat ulang');
     } catch (err) {
       toast(friendlyMessage(err), 'error');
@@ -449,6 +451,62 @@ export function AppProvider({ children }) {
             { date, type: 'in', accountId: toId, amount, description: `Pindah dari ${fromName}${extra}`, groupId },
           ]);
         }, 'Perpindahan saldo dicatat'),
+      /* patungan */
+      enableCollections: () => run((r) => r.enableFeature('collections'), 'Fitur Patungan diaktifkan'),
+      /** Buat patungan baru (sekaligus kantongnya) atau ubah yang ada. Nama kantong mengikuti nama patungan. */
+      saveCollection: (draft) =>
+        run(async (r, d) => {
+          need(d.features.collections === 'on', 'Fitur Patungan belum diaktifkan.');
+          const fixed = draft.kind === KIND_FIXED;
+          const fields = {
+            name: String(draft.name ?? '').trim(),
+            kind: draft.kind,
+            amount: fixed ? draft.amount : 0,
+            target: fixed ? 0 : draft.target || 0,
+            date: draft.date,
+            dueDate: draft.dueDate || '',
+            excluded: fixed ? draft.excluded ?? {} : {},
+            note: String(draft.note ?? '').trim(),
+          };
+          const error = validateCollection({ ...fields, id: draft.id }, d.collections);
+          need(!error, error);
+          if (draft.id) {
+            const existing = d.collections.find((c) => c.id === draft.id);
+            need(existing, 'Patungan sudah tidak ada di spreadsheet. Muat ulang data lalu ulangi.');
+            await r.update('collections', [{ ...existing, ...fields }]);
+            const pocket = d.pockets.find((p) => p.id === existing.accountId);
+            if (pocket && pocket.name !== fields.name) await r.update('accounts', [{ ...pocket, name: fields.name }]);
+            return;
+          }
+          // Kantong ditulis lebih dulu: bila langkah kedua gagal, yang tersisa hanya kantong kosong yang tersembunyi.
+          const accountId = newId(POCKET_PREFIX);
+          await r.add('accounts', [
+            { id: accountId, name: fields.name, order: 1000 + d.pockets.length, openingBalance: 0, active: true, note: 'Kantong patungan' },
+          ]);
+          await r.add('collections', [{ ...fields, accountId, closed: false }]);
+        }, 'Patungan disimpan'),
+      setCollectionClosed: (collection, closed) =>
+        run((r) => r.update('collections', [{ ...collection, closed }]), closed ? 'Patungan ditutup' : 'Patungan dibuka lagi'),
+      /** Hapus hanya bila belum ada setoran dan kantongnya belum pernah dipakai; kantongnya ikut dinonaktifkan. */
+      deleteCollection: (collection) =>
+        run(async (r, d) => {
+          need(!d.contributions.some((c) => c.collectionId === collection.id), 'Patungan yang sudah ada setorannya tidak bisa dihapus. Tutup saja.');
+          need(!d.transactions.some((t) => t.accountId === collection.accountId), 'Kantong patungan ini sudah punya transaksi, jadi tidak bisa dihapus. Tutup saja.');
+          await r.remove('collections', [collection]);
+          const pocket = d.pockets.find((p) => p.id === collection.accountId);
+          if (pocket) await r.update('accounts', [{ ...pocket, active: false }]);
+        }, 'Patungan dihapus'),
+      addContribution: ({ collection, memberId, amount, date, note }) =>
+        run((r, d) => {
+          const current = d.collections.find((c) => c.id === collection.id);
+          need(current, 'Patungan sudah tidak ada di spreadsheet. Muat ulang data lalu ulangi.');
+          need(!current.closed, 'Patungan sudah ditutup, tidak menerima setoran baru.');
+          need(d.members.some((m) => m.id === memberId), 'Pilih anggota.');
+          need(Number.isSafeInteger(amount) && amount > 0, 'Jumlah harus lebih dari 0.');
+          return r.add('contributions', [{ collectionId: collection.id, memberId, amount, date, note: String(note ?? '').trim() }]);
+        }, 'Setoran dicatat'),
+      voidContribution: (contribution) => run((r) => r.remove('contributions', [contribution]), 'Setoran dibatalkan'),
+
       voidTransaction: (tx) =>
         run((r, d) => {
           const targets = tx.groupId ? d.transactions.filter((t) => t.groupId === tx.groupId) : [tx];
@@ -477,14 +535,19 @@ export function AppProvider({ children }) {
 
   const derived = useMemo(() => {
     if (!data) return null;
-    const lines = buildLedgerLines(data);
-    const overall = accountStatement(data.accounts, lines);
+    // Kantong patungan ikut dihitung di buku kas, tetapi rekapnya terpisah dari kantong utama.
+    const lines = buildLedgerLines({ ...data, accounts: [...data.accounts, ...data.pockets] });
+    const parts = splitLines(lines, data.pockets);
+    const overall = accountStatement(data.accounts, parts.main);
+    const pocketsOverall = accountStatement(data.pockets, parts.pocket);
+    const balances = new Map([...overall.rows, ...pocketsOverall.rows].map((r) => [r.accountId, r.closing]));
+    const shownPockets = visiblePockets(data.pockets, data.collections, balances);
     const hasRemainder = data.periods.some((p) => {
       const used = data.allocations.filter((a) => a.periodId === p.id).reduce((s, a) => s + a.amount, 0);
       return p.fee - used > 0;
     });
     const umumRow = overall.rows.find((r) => r.accountId === UNALLOCATED_ID);
-    return { lines, overall, unallocatedAvailable: hasRemainder || Boolean(umumRow) };
+    return { lines, parts, overall, pocketsOverall, balances, shownPockets, unallocatedAvailable: hasRemainder || Boolean(umumRow) };
   }, [data]);
 
   // Tanpa sesi selalu tampil layar masuk, tanpa menunggu efek mengubah `phase` (menghindari satu render
@@ -496,6 +559,7 @@ export function AppProvider({ children }) {
     data, derived, period, selectPeriod, nowMonth, busy: busy > 0,
     orgName: data?.info?.org_name || '',
     accountMode: data ? resolveAccountMode(data.info, data.accounts) : 'simple',
+    collectionsEnabled: data?.features?.collections === 'on',
     reload, actions, config,
   };
   return <AppContext.Provider value={value}>{children}</AppContext.Provider>;

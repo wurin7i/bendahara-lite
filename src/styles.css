@@ -150,6 +150,7 @@ textarea { resize: vertical; min-height: 5rem; }
 .tag.in { background: var(--ok-soft); color: var(--ok); border-color: transparent; }
 .tag.out { background: var(--danger-soft); color: var(--danger); border-color: transparent; }
 .tag.dues { background: var(--primary-soft); color: var(--primary); border-color: transparent; }
+.tag.pocket { background: var(--warn-soft); color: var(--warn); border-color: transparent; }
 
 /* ---------- tabel ---------- */
 .table-scroll { overflow-x: auto; border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface); }
@@ -184,6 +185,30 @@ table.dues tfoot td { padding: 0.5rem 0.4rem; text-align: right; }
 .legend .l-due::before { background: var(--danger-soft); }
 .alloc-line { display: flex; flex-wrap: wrap; gap: 0.4rem 0.9rem; align-items: center; font-size: 0.88rem; color: var(--muted); margin-bottom: 0.75rem; }
 .alloc-line b { color: var(--text); font-variant-numeric: tabular-nums; }
+
+/* ---------- patungan ---------- */
+.link { border: 0; background: none; padding: 0; color: var(--primary); font: inherit; cursor: pointer; text-align: left; }
+.link:hover { text-decoration: underline; }
+.ptg-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(17rem, 1fr)); gap: 0.75rem; }
+.ptg-grid .card + .card { margin-top: 0; }
+.ptg-card { display: grid; gap: 0.45rem; align-content: start; }
+.ptg-card h2 { font-size: 1.05rem; margin: 0; }
+.ptg-card p { margin: 0; }
+.ptg-card.closed { opacity: 0.75; }
+.progress { height: 0.5rem; border-radius: 999px; background: var(--bg); border: 1px solid var(--border); overflow: hidden; margin-bottom: 1rem; }
+.ptg-card .progress { margin-bottom: 0; }
+.progress span { display: block; height: 100%; background: var(--primary); }
+.pill { display: inline-block; font-size: 0.8rem; padding: 0.1rem 0.55rem; border-radius: 999px; white-space: nowrap; }
+.pill.paid { background: var(--ok-soft); color: var(--ok); font-weight: 600; }
+.pill.partial { background: var(--warn-soft); color: var(--warn); font-weight: 600; }
+.pill.due { background: var(--danger-soft); color: var(--danger); }
+.pill.upcoming, .pill.na { color: var(--muted); }
+.ptg-members { border: 1px solid var(--border); border-radius: 8px; padding: 0.55rem 0.75rem; margin-bottom: 0.9rem; }
+.ptg-members summary { cursor: pointer; font-weight: 600; font-size: 0.88rem; }
+.ptg-members .inline-check { margin-bottom: 0.35rem; }
+.feature-row { display: flex; gap: 0.75rem; align-items: flex-start; flex-wrap: wrap; }
+.feature-row .grow { flex: 1 1 18rem; min-width: 0; }
+.feature-row .notice { margin: 0.5rem 0 0; }
 
 /* ---------- dialog ---------- */
 dialog.modal { border: 0; padding: 0; border-radius: 14px; width: min(30rem, calc(100vw - 1.5rem)); max-height: calc(100dvh - 2rem); background: var(--surface); color: var(--text); box-shadow: 0 20px 50px rgba(0, 0, 0, 0.3); }
