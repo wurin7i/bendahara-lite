@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { TransactionModal } from '../components/TransactionModal.jsx';
 import { ConfirmButton, Empty, Field, Modal, MoneyInput, Stat } from '../components/ui.jsx';
 import { UNALLOCATED_ID } from '../lib/allocation.js';
@@ -26,9 +26,29 @@ function useSpent(accountId) {
   return derived.lines.filter((l) => l.accountId === accountId && l.source === 'manual').reduce((s, l) => s + l.out, 0);
 }
 
+// Detail patungan punya alamat sendiri (#/patungan/<id>): tab Patungan dan tombol Kembali browser menuju daftar.
+const readSelected = () => {
+  try {
+    return decodeURIComponent(window.location.hash.replace(/^#\/?/, '').split('/')[1] ?? '') || null;
+  } catch {
+    return null; // hash rusak: tampilkan daftar
+  }
+};
+const openCollection = (id) => { window.location.hash = id ? `#/patungan/${encodeURIComponent(id)}` : '#/patungan'; };
+
+function useSelectedId() {
+  const [id, setId] = useState(readSelected);
+  useEffect(() => {
+    const onChange = () => setId(readSelected());
+    window.addEventListener('hashchange', onChange);
+    return () => window.removeEventListener('hashchange', onChange);
+  }, []);
+  return id;
+}
+
 export default function CollectionsView() {
   const { data, collectionsEnabled } = useApp();
-  const [selectedId, setSelectedId] = useState(null);
+  const selectedId = useSelectedId();
   const [editing, setEditing] = useState(null); // { collection? }
 
   if (!collectionsEnabled) {
@@ -43,9 +63,9 @@ export default function CollectionsView() {
   return (
     <>
       {selected ? (
-        <CollectionDetail collection={selected} onBack={() => setSelectedId(null)} onEdit={() => setEditing({ collection: selected })} />
+        <CollectionDetail collection={selected} onBack={() => openCollection(null)} onEdit={() => setEditing({ collection: selected })} />
       ) : (
-        <CollectionList onOpen={setSelectedId} onNew={() => setEditing({})} />
+        <CollectionList onOpen={openCollection} onNew={() => setEditing({})} />
       )}
       {editing && (
         <CollectionModal collection={editing.collection} onClose={() => setEditing(null)} />

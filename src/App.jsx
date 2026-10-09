@@ -23,7 +23,7 @@ const ROUTES = [
 ];
 
 const readRoute = () => {
-  const id = window.location.hash.replace(/^#\/?/, '');
+  const id = window.location.hash.replace(/^#\/?/, '').split('/')[0]; // "#/patungan/<id>" -> "patungan"
   return ROUTES.some((r) => r.id === id) ? id : 'iuran';
 };
 

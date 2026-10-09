@@ -16,6 +16,12 @@ dan **login Google** sebagai pintu masuk. JavaScript saja (React + Vite), tanpa 
 - **Buku kas**: seluruh uang masuk/keluar dengan saldo berjalan, filter per akun dan per periode. Iuran masuk
   otomatis; pengeluaran, pemasukan lain, dan pindah saldo antar akun dicatat manual.
 - **Laporan saldo akhir**: saldo awal, masuk, keluar, dan saldo akhir per akun, plus daftar tunggakan. Bisa dicetak/PDF.
+- **Patungan (iuran insidentil, opsional)**: pengumpulan dana di luar iuran rutin, mis. perbaikan jalan dengan
+  **besaran ditentukan** per anggota (lunas/kurang/belum, peserta bisa dikecualikan, batas waktu opsional) atau
+  menjenguk anggota yang sakit secara **sukarela** (tanpa tunggakan, target dana opsional). Tiap patungan punya
+  **kantong sendiri**, terpisah dari kas utama, juga di mode Sederhana. Belanja patungan dicatat sebagai Pengeluaran dari
+  kantong itu; sisanya dipindahkan ke kas utama (atau Umum) dengan **Pindahkan sisa**. Fitur ini tidak ikut saat buku
+  dibuat; aktifkan dari Pengaturan → *Fitur tambahan* bila perlu.
 - **Banyak buku (organisasi)**: satu akun Google bisa mengelola beberapa spreadsheet terpisah, mis. dua organisasi.
   Pemilih buku di header untuk berpindah atau membuat buku baru. Daftar buku tersimpan di akun Google Anda (folder
   tersembunyi di Drive), jadi **ikut ke semua perangkat dan browser** tanpa onboarding ulang.
@@ -109,6 +115,7 @@ Satu **buku** = satu Google Spreadsheet = satu organisasi/kelompok (anggota, aku
 | Tunggakan | Dihitung untuk anggota aktif, dari bulan "Mulai iuran" mereka sampai bulan berjalan. |
 | Saldo | Saldo akun = saldo awal + semua masuk − semua keluar. Laporan periode memakai saldo awal = mutasi sebelum periode. |
 | Penghapusan | Baris tidak dihapus dari Sheets, hanya ditandai **Dihapus**, supaya jejak audit utuh. Anggota & akun dinonaktifkan, bukan dihapus. |
+| Patungan | Setoran masuk ke kantong patungan (akun kas ber-ID `ktp_…`). Kantong ini tidak dihitung sebagai akun kas utama: mode Sederhana tetap "satu akun", dan Laporan merekapnya terpisah. Patungan yang ditutup tidak menerima setoran baru; kantongnya tetap bisa dipakai sampai saldonya nol, lalu hilang dari pilihan akun. Pindah saldo ke/dari kantong tidak dihitung sebagai pemasukan/pengeluaran. Tunggakan patungan terpisah dari tunggakan iuran rutin. |
 
 ### Struktur spreadsheet
 
@@ -124,6 +131,11 @@ tetapi **jangan mengubah, menambah, atau memindah kolom** pada baris header.
 | `Alokasi` | Jumlah per akun kas untuk tiap periode. |
 | `Iuran` | Satu baris per pembayaran: periode, anggota, bulan, jumlah, tanggal, pembagian ke akun (JSON). |
 | `Transaksi` | Pengeluaran, pemasukan lain, dan pasangan pindah saldo. |
+| `Patungan` *(opsional)* | Nama, jenis (tetap/sukarela), besaran per anggota atau target dana, tanggal, batas waktu, ID kantong, anggota yang tidak ikut (JSON), status ditutup. |
+| `Setoran Patungan` *(opsional)* | Satu baris per setoran: patungan, anggota, jumlah, tanggal. |
+
+Sheet bertanda *opsional* baru dibuat saat fitur diaktifkan di Pengaturan. Buku tanpa sheet itu tetap terbuka seperti
+biasa, termasuk oleh pengurus dengan akses Viewer.
 
 Penulisan memakai `valueInputOption=RAW`, jadi isi seperti `=1+1` tersimpan sebagai teks biasa dan tidak pernah
 dijalankan sebagai rumus. Setiap pembaruan mencari baris lewat ID saat itu juga, sehingga aman walau seseorang
@@ -132,10 +144,10 @@ mengurutkan ulang baris di Sheets.
 ### Arsitektur
 
 ```
-src/lib/       logika bisnis murni (bulan, alokasi, buku kas, tabel iuran, rupiah)    ← dites unit
+src/lib/       logika bisnis murni (bulan, alokasi, buku kas, tabel iuran, patungan, rupiah)  ← dites unit
 src/google/    login Google (GIS), HTTP bersama, klien Sheets API, skema sheet, repository, penyimpanan Drive
 src/state/     konteks aplikasi (sesi, data, aksi bisnis) dan daftar buku (books.js, dites unit)
-src/views/     Iuran, Buku Kas, Laporan, Anggota, Pengaturan, layar masuk/setup
+src/views/     Iuran, Patungan, Buku Kas, Laporan, Anggota, Pengaturan, layar masuk/setup
 src/dev/       Google palsu untuk mode demo dan pengujian
 tests/unit/    Vitest          e2e/    Playwright
 ```
