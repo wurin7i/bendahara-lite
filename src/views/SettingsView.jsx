@@ -20,6 +20,7 @@ export default function SettingsView() {
       </div>
       <CashSetupSection />
       <PeriodsSection />
+      <FeaturesSection />
       <SpreadsheetSection />
     </>
   );
@@ -383,6 +384,56 @@ function PeriodModal({ period, onClose }) {
         </div>
       </form>
     </Modal>
+  );
+}
+
+/* ------------------------------------------------------------------ Fitur tambahan */
+
+const FEATURE_NOTES = {
+  partial: 'Sheet Patungan tidak lengkap (mungkin terhapus di Google Sheets). Klik Lengkapi untuk membuat ulang yang hilang.',
+  mismatched:
+    'Ada sheet bernama “Patungan” atau “Setoran Patungan” yang strukturnya berbeda. Ganti nama sheet tersebut di Google Sheets, lalu aktifkan lagi.',
+};
+
+function FeaturesSection() {
+  const { data, actions } = useApp();
+  const state = data.features?.collections ?? 'off';
+  const [saving, setSaving] = useState(false);
+
+  async function enable() {
+    setSaving(true);
+    await actions.enableCollections();
+    setSaving(false);
+  }
+
+  return (
+    <section className="card" aria-labelledby="set-features">
+      <div className="card-head">
+        <h2 id="set-features">Fitur tambahan</h2>
+      </div>
+      <div className="feature-row">
+        <div className="grow">
+          <strong>Patungan</strong>
+          {state === 'on' && <span className="tag in">aktif</span>}
+          <p className="muted small" style={{ margin: '0.2rem 0 0' }}>
+            Iuran insidentil di luar iuran rutin, mis. patungan perbaikan jalan (besaran ditentukan) atau menjenguk
+            anggota yang sakit (sukarela). Tiap patungan punya kantong sendiri, terpisah dari kas utama.
+          </p>
+          {state === 'off' && (
+            <p className="muted small" style={{ margin: '0.2rem 0 0' }}>
+              Mengaktifkan akan menambah sheet <code>Patungan</code> dan <code>Setoran Patungan</code>; sheet lain tidak diubah.
+            </p>
+          )}
+          {FEATURE_NOTES[state] && <div className="notice warn small" role="alert">{FEATURE_NOTES[state]}</div>}
+        </div>
+        {state !== 'on' && (
+          <button type="button" className="btn primary small" onClick={enable} disabled={saving}>
+            {saving ? 'Menyiapkan…' : state === 'partial' ? 'Lengkapi' : 'Aktifkan'}
+          </button>
+        )}
+        {state === 'on' && <a className="btn small" href="#/patungan">Buka Patungan</a>}
+      </div>
+    </section>
   );
 }
 

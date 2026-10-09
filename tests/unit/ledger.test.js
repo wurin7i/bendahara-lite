@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { UNALLOCATED_ID } from '../../src/lib/allocation.js';
 import { accountStatement, buildLedgerLines, buildLedgerView } from '../../src/lib/ledger.js';
+import { splitLines, visiblePockets } from '../../src/lib/pockets.js';
 
 const accounts = [
   { id: 'kelas', name: 'Kas Kelas', active: true, openingBalance: 100000 },
@@ -70,10 +71,10 @@ describe('accountStatement', () => {
 
   it('mencatat volume perpindahan antar akun agar total masuk/keluar bisa dikoreksi', () => {
     const s = accountStatement(accounts, lines);
-    expect(s.transferVolume).toBe(15000);
-    expect(s.total.in - s.transferVolume).toBe(200000); // hanya iuran
-    expect(s.total.out - s.transferVolume).toBe(50000); // hanya pengeluaran nyata
-    expect(accountStatement(accounts, lines, { to: '2026-07-31' }).transferVolume).toBe(0);
+    expect(s).toMatchObject({ transferIn: 15000, transferOut: 15000 });
+    expect(s.total.in - s.transferIn).toBe(200000); // hanya iuran
+    expect(s.total.out - s.transferOut).toBe(50000); // hanya pengeluaran nyata
+    expect(accountStatement(accounts, lines, { to: '2026-07-31' })).toMatchObject({ transferIn: 0, transferOut: 0 });
   });
 
   it('baris Umum disembunyikan bila tak ada aktivitas', () => {
@@ -109,5 +110,64 @@ describe('buildLedgerView', () => {
     expect(v.opening).toBe(190000);
     expect(v.entries).toHaveLength(1);
     expect(v.closing).toBe(205000);
+  });
+});
+
+describe('patungan & kantong patungan', () => {
+  const pockets = [{ id: 'ktp_jalan', name: 'Perbaikan jalan', active: true, openingBalance: 0 }];
+  const all = [...accounts, ...pockets];
+  const collections = [{ id: 'ptg1', name: 'Perbaikan jalan', accountId: 'ktp_jalan', closed: false }];
+  const contributions = [
+    { id: 's1', collectionId: 'ptg1', memberId: 'm1', amount: 50000, date: '2026-07-07', createdAt: '2026-07-07T01:00:00Z', note: '' },
+    { id: 's2', collectionId: 'ptg1', memberId: 'm2', amount: 30000, date: '2026-07-08', createdAt: '2026-07-08T01:00:00Z', note: '' },
+    { id: 's3', collectionId: 'ptg-hilang', memberId: 'm2', amount: 1000, date: '2026-07-08', createdAt: '2026-07-08T02:00:00Z', note: '' },
+  ];
+  const tx = [
+    ...transactions,
+    { id: 't4', date: '2026-07-20', type: 'out', accountId: 'ktp_jalan', amount: 60000, description: 'Semen', groupId: '', createdAt: '2026-07-20T01:00:00Z' },
+    // sisa 20.000 dipindah ke Kas Kelas
+    { id: 't5', date: '2026-08-02', type: 'out', accountId: 'ktp_jalan', amount: 20000, description: 'Pindah ke Kas Kelas', groupId: 'g2', createdAt: '2026-08-02T01:00:00Z' },
+    { id: 't6', date: '2026-08-02', type: 'in', accountId: 'kelas', amount: 20000, description: 'Pindah dari Perbaikan jalan', groupId: 'g2', createdAt: '2026-08-02T01:00:01Z' },
+  ];
+  const l = buildLedgerLines({ payments, transactions: tx, members, accounts: all, collections, contributions });
+  const parts = splitLines(l, pockets);
+
+  it('setoran masuk ke kantong patungannya; patungan tak dikenal dialihkan ke Umum', () => {
+    expect(l.find((x) => x.id === 's1')).toMatchObject({
+      source: 'collection', accountId: 'ktp_jalan', in: 50000, description: 'Patungan Perbaikan jalan – Ani',
+    });
+    expect(l.find((x) => x.id === 's3')).toMatchObject({ accountId: UNALLOCATED_ID, description: 'Patungan (patungan dihapus) – Budi' });
+  });
+
+  it('kantong utama dan kantong patungan punya rekap terpisah; pindah saldo lintas kelompok tidak dihitung pemasukan', () => {
+    const main = accountStatement(accounts, parts.main);
+    const pocket = accountStatement(pockets, parts.pocket);
+    expect(pocket.rows).toHaveLength(1); // tanpa baris Umum
+    expect(pocket.rows[0]).toMatchObject({ in: 80000, out: 80000, closing: 0 });
+    expect(pocket.total.out - pocket.transferOut).toBe(60000); // terpakai nyata
+    expect(main.transferIn).toBe(35000);
+    expect(main.transferOut).toBe(15000);
+    expect(main.total.in - main.transferIn).toBe(200000 + 1000); // iuran + setoran yatim di Umum
+    expect(main.total.out - main.transferOut).toBe(50000);
+    expect(main.total.closing + pocket.total.closing).toBe(accountStatement(all, l).total.closing);
+  });
+
+  it('buku kas kantong utama tidak memuat mutasi kantong patungan, kecuali dipilih', () => {
+    const v = buildLedgerView(accounts, l);
+    expect(v.entries.some((e) => e.accountIds.includes('ktp_jalan'))).toBe(false);
+    expect(v.entries.find((e) => e.ref === 't6')).toMatchObject({ in: 20000 });
+    const p = buildLedgerView(all, l, { accountId: 'ktp_jalan' });
+    expect(p.entries.map((e) => e.balance)).toEqual([50000, 80000, 20000, 0]);
+    expect(buildLedgerView(all, l).closing).toBe(v.closing + p.closing);
+  });
+
+  it('kantong tampil di pilihan selama patungan buka atau saldo belum nol', () => {
+    const extra = { id: 'ktp_lama', name: 'Lama', active: false };
+    const list = [...pockets, extra];
+    const ids = (cols, bal) => visiblePockets(list, cols, new Map(Object.entries(bal))).map((p) => p.id);
+    expect(ids(collections, {})).toEqual(['ktp_jalan']);
+    expect(ids([{ ...collections[0], closed: true }], { ktp_jalan: 20000 })).toEqual(['ktp_jalan']);
+    expect(ids([{ ...collections[0], closed: true }], { ktp_jalan: 0 })).toEqual([]);
+    expect(ids([], { ktp_lama: -5000 })).toEqual(['ktp_lama']); // tanpa patungan tetapi masih bersaldo
   });
 });

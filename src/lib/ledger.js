@@ -1,7 +1,8 @@
-// Buku kas: seluruh uang masuk/keluar digabung dari dua sumber,
-//   1. pembayaran iuran (dipecah per akun sesuai snapshot pembagian), dan
-//   2. transaksi manual (pengeluaran, pemasukan lain, pindah antar akun).
-// Tidak ada data ganda: buku kas selalu dihitung ulang dari kedua sumber itu.
+// Buku kas: seluruh uang masuk/keluar digabung dari tiga sumber,
+//   1. pembayaran iuran (dipecah per akun sesuai snapshot pembagian),
+//   2. setoran patungan (masuk ke kantong patungan masing-masing), dan
+//   3. transaksi manual (pengeluaran, pemasukan lain, pindah antar akun).
+// Tidak ada data ganda: buku kas selalu dihitung ulang dari sumber-sumber itu.
 
 import { UNALLOCATED_ID, UNALLOCATED_NAME, normalizeSplit } from './allocation.js';
 import { monthLabel } from './months.js';
@@ -12,9 +13,10 @@ const byDateThenCreated = (a, b) =>
 
 /**
  * @returns {{id, ref, source, date, createdAt, accountId, in, out, description, groupId?}[]}
- *   source: 'dues' | 'manual' | 'transfer'. Diurutkan menurut tanggal.
+ *   source: 'dues' | 'collection' | 'manual' | 'transfer'. Diurutkan menurut tanggal.
+ *   `accounts` harus memuat semua akun yang bisa dituju, termasuk kantong patungan.
  */
-export function buildLedgerLines({ payments, transactions, members, accounts }) {
+export function buildLedgerLines({ payments, transactions, members, accounts, collections = [], contributions = [] }) {
   const knownAccounts = new Set(accounts.map((a) => a.id));
   // Akun tak dikenal (mis. baris diedit manual di Sheets) dialihkan ke "Umum" supaya uang tidak hilang dari laporan.
   const resolve = (id) => (knownAccounts.has(id) ? id : UNALLOCATED_ID);
@@ -44,6 +46,24 @@ export function buildLedgerLines({ payments, transactions, members, accounts }) 
     }
   }
 
+  const collectionOf = new Map(collections.map((c) => [c.id, c]));
+  for (const c of contributions) {
+    const collection = collectionOf.get(c.collectionId);
+    lines.push({
+      id: c.id,
+      ref: c.id,
+      source: 'collection',
+      collectionId: c.collectionId,
+      date: c.date,
+      createdAt: c.createdAt,
+      accountId: resolve(collection?.accountId),
+      in: c.amount,
+      out: 0,
+      description: `Patungan ${collection?.name ?? '(patungan dihapus)'} – ${memberName.get(c.memberId) ?? '(anggota dihapus)'}`,
+      note: c.note,
+    });
+  }
+
   for (const t of transactions) {
     lines.push({
       id: t.id,
@@ -65,6 +85,8 @@ export function buildLedgerLines({ payments, transactions, members, accounts }) 
 /**
  * Rekap per akun untuk rentang [from, to] (keduanya inklusif, boleh null = tanpa batas).
  * opening = saldo awal akun + semua mutasi sebelum `from`.
+ * transferIn/transferOut = bagian Masuk/Keluar yang berasal dari pindah saldo. Keduanya sama bila semua akun ikut
+ * dihitung, tetapi bisa berbeda bila hanya sebagian akun (mis. kantong utama saja) yang dimasukkan.
  */
 export function accountStatement(accounts, lines, { from = null, to = null } = {}) {
   const rows = accounts.map((a) => ({
@@ -88,7 +110,8 @@ export function accountStatement(accounts, lines, { from = null, to = null } = {
   rows.push(unallocated);
   const byId = new Map(rows.map((r) => [r.accountId, r]));
   // Perpindahan antar akun muncul sebagai masuk di satu akun dan keluar di akun lain (saling meniadakan).
-  let transferVolume = 0;
+  let transferIn = 0;
+  let transferOut = 0;
 
   for (const line of lines) {
     const row = byId.get(line.accountId) ?? unallocated;
@@ -97,7 +120,10 @@ export function accountStatement(accounts, lines, { from = null, to = null } = {
     } else if (!to || line.date <= to) {
       row.in += line.in;
       row.out += line.out;
-      if (line.source === 'transfer') transferVolume += line.in;
+      if (line.source === 'transfer') {
+        transferIn += line.in;
+        transferOut += line.out;
+      }
     }
   }
 
@@ -110,16 +136,18 @@ export function accountStatement(accounts, lines, { from = null, to = null } = {
     (t, r) => ({ opening: t.opening + r.opening, in: t.in + r.in, out: t.out + r.out, closing: t.closing + r.closing }),
     { opening: 0, in: 0, out: 0, closing: 0 },
   );
-  return { rows: visible, total, transferVolume };
+  return { rows: visible, total, transferIn, transferOut };
 }
 
 /**
  * Tampilan buku kas dengan saldo berjalan.
  * - accountId diisi: satu baris per mutasi akun tersebut.
- * - accountId kosong: seluruh akun; mutasi iuran satu pembayaran digabung jadi satu baris.
+ * - accountId kosong: seluruh akun pada `accounts` (plus Umum); mutasi iuran satu pembayaran digabung jadi satu
+ *   baris. Dengan hanya memberi kantong utama, mutasi kantong patungan tidak ikut.
  */
 export function buildLedgerView(accounts, lines, { accountId = null, from = null, to = null } = {}) {
-  const scoped = accountId ? lines.filter((l) => l.accountId === accountId) : lines;
+  const inScope = new Set([...accounts.map((a) => a.id), UNALLOCATED_ID]);
+  const scoped = lines.filter((l) => (accountId ? l.accountId === accountId : inScope.has(l.accountId)));
 
   let opening = accountId
     ? (accounts.find((a) => a.id === accountId)?.openingBalance ?? 0)

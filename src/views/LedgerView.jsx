@@ -1,39 +1,43 @@
 import { useMemo, useState } from 'react';
-import { ConfirmButton, Empty, Field, Modal, MoneyInput } from '../components/ui.jsx';
+import { AccountOptions, TransactionModal, useAccountOptions } from '../components/TransactionModal.jsx';
+import { ConfirmButton, Empty } from '../components/ui.jsx';
 import { UNALLOCATED_ID, UNALLOCATED_NAME } from '../lib/allocation.js';
 import { buildLedgerView } from '../lib/ledger.js';
-import { formatNumber, formatRupiah } from '../lib/money.js';
-import { formatDate, isISODate, periodRange, periodRangeLabel, todayISO } from '../lib/months.js';
+import { formatNumber } from '../lib/money.js';
+import { formatDate, periodRange, periodRangeLabel } from '../lib/months.js';
 import { useApp } from '../state/AppContext.jsx';
 
-/** Akun yang boleh dipilih untuk transaksi: akun aktif (+ akun yang sedang dipakai), dan Umum bila relevan. */
-function useAccountOptions(currentIds = []) {
-  const { data, derived } = useApp();
-  const options = data.accounts.filter((a) => a.active || currentIds.includes(a.id)).map((a) => ({ id: a.id, name: a.name }));
-  if (derived.unallocatedAvailable || currentIds.includes(UNALLOCATED_ID)) {
-    options.push({ id: UNALLOCATED_ID, name: UNALLOCATED_NAME });
-  }
-  return options;
-}
+const ALL = '__semua__'; // filter: kas utama + seluruh kantong patungan
 
 export default function LedgerView() {
   const { data, derived, period, actions, accountMode } = useApp();
-  const simple = accountMode === 'simple'; // satu akun: tanpa filter akun, kolom Akun, dan pindah saldo
-  const [accountId, setAccountId] = useState('');
+  // Mode Sederhana tanpa kantong patungan: tanpa filter akun, kolom Akun, dan pindah saldo.
+  const simple = accountMode === 'simple';
+  const [accountId, setAccountId] = useState(''); // '' = kas utama, ALL = semua, selain itu satu akun
   const [scope, setScope] = useState('period');
   const [modal, setModal] = useState(null); // { mode: 'out' | 'in' | 'transfer', tx? }
 
+  const allAccounts = useMemo(() => [...data.accounts, ...data.pockets], [data.accounts, data.pockets]);
+  // Kantong untuk filter: yang masih tampil, plus yang pernah punya mutasi (riwayat patungan yang sudah ditutup).
+  const pocketsWithLines = new Set(derived.lines.map((l) => l.accountId));
+  const filterOptions = useAccountOptions(data.pockets.filter((p) => pocketsWithLines.has(p.id)).map((p) => p.id));
+  const transferOptions = useAccountOptions();
+  const hasPockets = filterOptions.some((o) => o.pocket);
+  const showFilter = !simple || hasPockets;
+  const canTransfer = !simple || transferOptions.some((o) => o.pocket);
+
   const range = scope === 'period' && period ? periodRange(period.startMonth) : { from: null, to: null };
+  const single = accountId && accountId !== ALL ? accountId : null;
   const view = useMemo(
-    () => buildLedgerView(data.accounts, derived.lines, { accountId: accountId || null, ...range }),
+    () => buildLedgerView(accountId === '' ? data.accounts : allAccounts, derived.lines, { accountId: single, ...range }),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [data.accounts, derived.lines, accountId, range.from, range.to],
+    [data.accounts, allAccounts, derived.lines, accountId, range.from, range.to],
   );
 
-  const nameOf = (id) => (id === UNALLOCATED_ID ? UNALLOCATED_NAME : data.accounts.find((a) => a.id === id)?.name ?? id);
-  const filterOptions = useAccountOptions();
+  const nameOf = (id) => (id === UNALLOCATED_ID ? UNALLOCATED_NAME : allAccounts.find((a) => a.id === id)?.name ?? id);
   const noAccounts = data.accounts.length === 0;
-  const showAccountCol = !simple && !accountId;
+  const showAccountCol = !single && (!simple || accountId === ALL);
+  const scopeLabel = single ? nameOf(single) : accountId === ALL ? 'semua kantong' : hasPockets ? 'kas utama' : 'semua akun';
 
   return (
     <>
@@ -42,7 +46,7 @@ export default function LedgerView() {
           Buku Kas
           <span className="sub">
             {scope === 'period' && period ? periodRangeLabel(period.startMonth) : 'Semua waktu'}
-            {!simple && (accountId ? ` · ${nameOf(accountId)}` : ' · semua akun')}
+            {showFilter && ` · ${scopeLabel}`}
           </span>
         </h1>
         <div className="toolbar no-print">
@@ -52,8 +56,8 @@ export default function LedgerView() {
           <button type="button" className="btn" onClick={() => setModal({ mode: 'in' })} disabled={noAccounts && !derived.unallocatedAvailable}>
             + Pemasukan lain
           </button>
-          {!simple && (
-            <button type="button" className="btn" onClick={() => setModal({ mode: 'transfer' })} disabled={filterOptions.length < 2}>
+          {canTransfer && (
+            <button type="button" className="btn" onClick={() => setModal({ mode: 'transfer' })} disabled={transferOptions.length < 2}>
               ⇄ Pindah saldo
             </button>
           )}
@@ -61,14 +65,19 @@ export default function LedgerView() {
       </div>
 
       <div className="toolbar no-print" style={{ marginBottom: '0.75rem' }}>
-        {!simple && (
+        {showFilter && (
           <>
             <label className="sr-only" htmlFor="ledger-account">Akun</label>
             <select id="ledger-account" value={accountId} onChange={(e) => setAccountId(e.target.value)}>
-              <option value="">Semua akun</option>
-              {filterOptions.map((o) => (
-                <option key={o.id} value={o.id}>{o.name}</option>
-              ))}
+              <option value="">{hasPockets ? 'Kas utama (tanpa patungan)' : 'Semua akun'}</option>
+              {hasPockets && <option value={ALL}>Semua, termasuk patungan</option>}
+              {simple ? (
+                <optgroup label="Kantong patungan">
+                  {filterOptions.filter((o) => o.pocket).map((o) => <option key={o.id} value={o.id}>{o.name}</option>)}
+                </optgroup>
+              ) : (
+                <AccountOptions options={filterOptions} />
+              )}
             </select>
           </>
         )}
@@ -113,13 +122,14 @@ export default function LedgerView() {
               )}
               {view.entries.map((e) => {
                 const names = e.accountIds.map(nameOf);
-                const original = e.source === 'dues' ? null : data.transactions.find((t) => t.id === e.ref);
+                const original = e.source === 'manual' || e.source === 'transfer' ? data.transactions.find((t) => t.id === e.ref) : null;
                 return (
                   <tr key={e.key}>
                     <td className="nowrap">{formatDate(e.date)}</td>
                     <td>
                       {e.description}
                       {e.source === 'dues' && <span className="tag dues">Iuran</span>}
+                      {e.source === 'collection' && <span className="tag pocket">Patungan</span>}
                       {e.source === 'transfer' && <span className="tag">Pindah</span>}
                     </td>
                     {showAccountCol && (
@@ -161,101 +171,11 @@ export default function LedgerView() {
         </div>
       )}
       <p className="hint">
-        Iuran anggota masuk otomatis dari menu Iuran.
-        {!simple && ' Pindah saldo antar akun tercatat sebagai pasangan keluar/masuk dan tidak mengubah total kas.'}
+        Iuran anggota masuk otomatis dari menu Iuran{hasPockets ? ', setoran patungan dari menu Patungan ke kantongnya masing-masing' : ''}.
+        {canTransfer && ' Pindah saldo antar akun tercatat sebagai pasangan keluar/masuk dan tidak mengubah total kas.'}
       </p>
 
       {modal && <TransactionModal {...modal} onClose={() => setModal(null)} />}
     </>
-  );
-}
-
-const TITLES = { out: 'Catat pengeluaran', in: 'Catat pemasukan lain', transfer: 'Pindah saldo antar akun' };
-
-function TransactionModal({ mode, tx, onClose }) {
-  const { data, derived, actions, accountMode } = useApp();
-  const editing = Boolean(tx);
-  const options = useAccountOptions(tx ? [tx.accountId] : []);
-  const pickAccount = accountMode !== 'simple' || options.length > 1;
-
-  const [date, setDate] = useState(tx?.date ?? todayISO());
-  const [accountId, setAccountId] = useState(tx?.accountId ?? options[0]?.id ?? '');
-  const [toId, setToId] = useState(options.find((o) => o.id !== (tx?.accountId ?? options[0]?.id))?.id ?? '');
-  const [amount, setAmount] = useState(tx?.amount ?? '');
-  const [description, setDescription] = useState(tx?.description ?? '');
-  const [saving, setSaving] = useState(false);
-
-  const valid =
-    Number.isSafeInteger(amount) && amount > 0 && isISODate(date) && accountId &&
-    (mode === 'transfer' ? toId && toId !== accountId : description.trim().length > 0);
-
-  // Peringatan (tidak memblokir) bila saldo akun akan menjadi minus.
-  const balance = derived.overall.rows.find((r) => r.accountId === accountId)?.closing ?? 0;
-  const releasing = editing && tx.accountId === accountId && tx.type === 'out' ? tx.amount : 0;
-  const overdraw = mode !== 'in' && Number.isSafeInteger(amount) && amount > balance + releasing;
-  const nameOf = (id) => options.find((o) => o.id === id)?.name ?? id;
-
-  async function submit(e) {
-    e.preventDefault();
-    if (!valid || saving) return;
-    setSaving(true);
-    const ok =
-      mode === 'transfer'
-        ? await actions.addTransfer({ date, fromId: accountId, toId, amount, description, fromName: nameOf(accountId), toName: nameOf(toId) })
-        : await actions.saveTransaction({ ...(tx ?? {}), date, type: mode, accountId, amount, description, groupId: tx?.groupId ?? '' });
-    setSaving(false);
-    if (ok) onClose();
-  }
-
-  return (
-    <Modal title={editing ? `Ubah ${mode === 'out' ? 'pengeluaran' : 'pemasukan'}` : TITLES[mode]} onClose={onClose}>
-      <form onSubmit={submit}>
-        <div className="row">
-          <Field label="Tanggal">
-            <input type="date" value={date} onChange={(e) => setDate(e.target.value)} required />
-          </Field>
-          {pickAccount && (
-            <Field label={mode === 'transfer' ? 'Dari akun' : 'Akun kas'}>
-              <select value={accountId} onChange={(e) => setAccountId(e.target.value)}>
-                {options.map((o) => (
-                  <option key={o.id} value={o.id}>{o.name}</option>
-                ))}
-              </select>
-            </Field>
-          )}
-        </div>
-        {mode === 'transfer' && (
-          <Field label="Ke akun">
-            <select value={toId} onChange={(e) => setToId(e.target.value)}>
-              <option value="">Pilih akun…</option>
-              {options.filter((o) => o.id !== accountId).map((o) => (
-                <option key={o.id} value={o.id}>{o.name}</option>
-              ))}
-            </select>
-          </Field>
-        )}
-        <Field label="Jumlah" hint={mode !== 'in' ? `Saldo ${nameOf(accountId)} saat ini ${formatRupiah(balance)}` : undefined}>
-          <MoneyInput value={amount} onChange={setAmount} autoFocus />
-        </Field>
-        <Field label={mode === 'transfer' ? 'Keterangan (opsional)' : 'Keterangan'}>
-          <input
-            type="text"
-            value={description}
-            onChange={(e) => setDescription(e.target.value)}
-            placeholder={mode === 'out' ? 'mis. Beli spidol dan penghapus' : mode === 'in' ? 'mis. Donasi alumni' : 'mis. Pinjam untuk acara'}
-            required={mode !== 'transfer'}
-          />
-        </Field>
-        {overdraw && (
-          <div className="notice warn small">Jumlah melebihi saldo akun ini; saldonya akan menjadi minus.</div>
-        )}
-        <div className="modal-actions">
-          <button type="button" className="btn" onClick={onClose}>Batal</button>
-          <button type="submit" className="btn primary" disabled={!valid || saving}>
-            {saving ? 'Menyimpan…' : 'Simpan'}
-          </button>
-        </div>
-      </form>
-    </Modal>
   );
 }
