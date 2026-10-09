@@ -15,7 +15,8 @@ function GoogleG() {
   );
 }
 
-const EARLY_ACCESS_URL = 'https://wa.me/628980852000';
+const EARLY_ACCESS_MESSAGE = 'Halo, saya tertarik jadi pengguna awal Bendahara Lite. Apakah slotnya masih tersedia?';
+const EARLY_ACCESS_URL = `https://wa.me/628980852000?text=${encodeURIComponent(EARLY_ACCESS_MESSAGE)}`;
 
 function EarlyAccessBanner() {
   return (

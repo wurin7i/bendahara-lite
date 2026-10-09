@@ -20,7 +20,11 @@ test('halaman login menampilkan banner undangan pengguna awal dengan tautan What
   await expect(banner).toContainText('Masih dalam pengembangan');
   await expect(banner).toContainText('100 slot');
   const link = banner.getByRole('link', { name: 'Daftar lewat WhatsApp' });
-  await expect(link).toHaveAttribute('href', 'https://wa.me/628980852000');
+  const url = new URL(await link.getAttribute('href'));
+  expect(url.origin + url.pathname).toBe('https://wa.me/628980852000');
+  expect(url.searchParams.get('text')).toBe(
+    'Halo, saya tertarik jadi pengguna awal Bendahara Lite. Apakah slotnya masih tersedia?',
+  );
   await expect(link).toHaveAttribute('target', '_blank');
   await expect(link).toHaveAttribute('rel', /noopener/);
 });
