@@ -15,6 +15,25 @@ function GoogleG() {
   );
 }
 
+const EARLY_ACCESS_URL = 'https://wa.me/628980852000';
+
+function EarlyAccessBanner() {
+  return (
+    <aside className="early-banner" aria-label="Undangan pengguna awal">
+      <span className="tag early-tag">Masih dalam pengembangan</span>
+      <h2>Jadi yang pertama mencoba!</h2>
+      <p>
+        Bendahara Lite masih kami rapikan dan sempurnakan. Kami mengundang <strong>pengguna awal</strong> untuk mencoba
+        lebih dulu dan ikut membentuk aplikasi ini lewat masukan Anda. Tersedia <strong>100 slot</strong>, jadi
+        amankan tempat Anda sekarang.
+      </p>
+      <a className="btn primary" href={EARLY_ACCESS_URL} target="_blank" rel="noopener noreferrer">
+        Daftar lewat WhatsApp
+      </a>
+    </aside>
+  );
+}
+
 export function LoginView() {
   const { actions, loginError, config } = useApp();
   const [busy, setBusy] = useState(false);
@@ -28,34 +47,37 @@ export function LoginView() {
 
   return (
     <div className="center-screen">
-      <div className="card auth-card">
-        <BrandMark size={48} />
-        <h1>Bendahara Lite</h1>
-        <p className="muted">Pencatat kas iuran bulanan. Data tersimpan di Google Spreadsheet milik Anda sendiri.</p>
+      <div className="auth-stack">
+        <EarlyAccessBanner />
+        <div className="card auth-card">
+          <BrandMark size={48} />
+          <h1>Bendahara Lite</h1>
+          <p className="muted">Pencatat kas iuran bulanan. Data tersimpan di Google Spreadsheet milik Anda sendiri.</p>
 
-        {config.demo && (
-          <div className="notice warn">
-            <strong>Mode demo.</strong> Login Google dan spreadsheet dipalsukan di browser ini.
-          </div>
-        )}
-        {missingClientId ? (
-          <div className="notice error" role="alert">
-            <strong>Google Client ID belum diatur.</strong> Isi <code>VITE_GOOGLE_CLIENT_ID</code> pada file{' '}
-            <code>.env</code> lalu jalankan ulang aplikasi. Langkah lengkap ada di README.
-          </div>
-        ) : (
-          <button type="button" className="btn google-btn" onClick={onClick} disabled={busy}>
-            {busy ? <span className="spinner" aria-hidden="true" /> : <GoogleG />}
-            Masuk dengan Google
-          </button>
-        )}
-        {loginError && (
-          <div className="notice error" role="alert" style={{ marginTop: '0.9rem', marginBottom: 0 }}>{loginError}</div>
-        )}
-        <p className="hint" style={{ marginTop: '1rem' }}>
-          Aplikasi hanya meminta izin membaca dan menulis Google Spreadsheet. Hak akses ke data mengikuti pengaturan
-          berbagi (Share) spreadsheet di Google.
-        </p>
+          {config.demo && (
+            <div className="notice warn">
+              <strong>Mode demo.</strong> Login Google dan spreadsheet dipalsukan di browser ini.
+            </div>
+          )}
+          {missingClientId ? (
+            <div className="notice error" role="alert">
+              <strong>Google Client ID belum diatur.</strong> Isi <code>VITE_GOOGLE_CLIENT_ID</code> pada file{' '}
+              <code>.env</code> lalu jalankan ulang aplikasi. Langkah lengkap ada di README.
+            </div>
+          ) : (
+            <button type="button" className="btn google-btn" onClick={onClick} disabled={busy}>
+              {busy ? <span className="spinner" aria-hidden="true" /> : <GoogleG />}
+              Masuk dengan Google
+            </button>
+          )}
+          {loginError && (
+            <div className="notice error" role="alert" style={{ marginTop: '0.9rem', marginBottom: 0 }}>{loginError}</div>
+          )}
+          <p className="hint" style={{ marginTop: '1rem' }}>
+            Aplikasi hanya meminta izin membaca dan menulis Google Spreadsheet. Hak akses ke data mengikuti pengaturan
+            berbagi (Share) spreadsheet di Google.
+          </p>
+        </div>
       </div>
     </div>
   );

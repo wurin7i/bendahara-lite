@@ -14,6 +14,17 @@ test('login wajib: tanpa masuk tidak ada data atau menu', async ({ page }) => {
   await expect(page.getByText('Anggota', { exact: true })).toHaveCount(0);
 });
 
+test('halaman login menampilkan banner undangan pengguna awal dengan tautan WhatsApp', async ({ page }) => {
+  await page.goto('/');
+  const banner = page.getByRole('complementary', { name: 'Undangan pengguna awal' });
+  await expect(banner).toContainText('Masih dalam pengembangan');
+  await expect(banner).toContainText('100 slot');
+  const link = banner.getByRole('link', { name: 'Daftar lewat WhatsApp' });
+  await expect(link).toHaveAttribute('href', 'https://wa.me/628980852000');
+  await expect(link).toHaveAttribute('target', '_blank');
+  await expect(link).toHaveAttribute('rel', /noopener/);
+});
+
 test('alur lengkap: akun, periode, anggota, iuran, buku kas, laporan', async ({ page }) => {
   // Peringatan React (key ganda, dsb.) hanya tampil di console, jadi dikumpulkan dan diperiksa di akhir.
   const problems = [];
