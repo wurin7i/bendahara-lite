@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 import { AuthError, ApiError, ConflictError, SchemaError, friendlyMessage } from '../../src/google/errors.js';
 import { createRepository, createSpreadsheet, parseSpreadsheetId } from '../../src/google/repository.js';
-import { TABLES, columnLetter, decodeRow, encodeRecord } from '../../src/google/schema.js';
+import { CORE_TABLE_KEYS, TABLES, columnLetter, decodeRow, encodeRecord } from '../../src/google/schema.js';
 import { createSheetsApi } from '../../src/google/sheetsApi.js';
 import { createFakeFetch, createFakeSheetsServer, fakeToken, parseRange } from '../../src/dev/fakeGoogle.js';
 
@@ -75,9 +75,10 @@ describe('createSpreadsheet + initialize', () => {
     expect(err.message).toBe('Invalid properties: Unsupported locale: id_ID');
   });
 
-  it('membuat semua sheet dan menulis header + info', async () => {
+  it('membuat sheet inti (tanpa sheet fitur opsional) dan menulis header + info', async () => {
     const { server, spreadsheetId } = await freshRepo();
-    expect(server.sheetTitles(spreadsheetId)).toEqual(Object.values(TABLES).map((t) => t.sheet));
+    expect(server.sheetTitles(spreadsheetId)).toEqual(CORE_TABLE_KEYS.map((k) => TABLES[k].sheet));
+    expect(server.sheetTitles(spreadsheetId)).not.toContain('Patungan');
     expect(server.dump(spreadsheetId, 'Anggota')[0]).toEqual(TABLES.members.columns.map((c) => c.header));
     const info = server.dump(spreadsheetId, 'Info');
     expect(info.map((r) => r[0])).toEqual(['Kunci', 'app', 'schema_version', 'created_at']);
@@ -100,7 +101,7 @@ describe('createSpreadsheet + initialize', () => {
 
     const before = await repo.inspect();
     expect(before.ready).toBe(false);
-    expect(before.missing).toHaveLength(Object.keys(TABLES).length);
+    expect(before.missing).toHaveLength(CORE_TABLE_KEYS.length);
 
     await repo.initialize();
     expect(server.dump(spreadsheetId, 'Sheet1')).toEqual([['rahasia', 123]]);
@@ -208,6 +209,78 @@ describe('repository CRUD', () => {
   });
 });
 
+describe('fitur opsional Patungan', () => {
+  it('buku baru: fitur mati, load mengembalikan tabel kosong tanpa meminta sheet yang tidak ada', async () => {
+    const { repo } = await freshRepo();
+    expect((await repo.inspect()).features).toEqual({ collections: 'off' });
+    const data = await repo.load();
+    expect(data.features).toEqual({ collections: 'off' });
+    expect(data.collections).toEqual([]);
+    expect(data.contributions).toEqual([]);
+  });
+
+  it('enableFeature menambah dua sheet saja, idempoten, dan sheet lain tidak berubah', async () => {
+    const { repo, server, spreadsheetId } = await freshRepo();
+    await repo.add('members', [{ name: 'Ani', active: true }]);
+    const before = server.dump(spreadsheetId, 'Anggota');
+
+    const state = await repo.enableFeature('collections');
+    expect(state.features.collections).toBe('on');
+    expect(server.sheetTitles(spreadsheetId).slice(-2)).toEqual(['Patungan', 'Setoran Patungan']);
+    expect(server.dump(spreadsheetId, 'Patungan')[0]).toEqual(TABLES.collections.columns.map((c) => c.header));
+    expect(server.dump(spreadsheetId, 'Anggota')).toEqual(before);
+
+    const calls = server.calls.length;
+    await repo.enableFeature('collections');
+    expect(server.calls.slice(calls).filter((c) => c.method !== 'GET')).toEqual([]);
+
+    await repo.add('collections', [{ name: 'Perbaikan jalan', kind: 'tetap', amount: 50000, excluded: { agt_1: true } }]);
+    const data = await repo.load();
+    expect(data.features.collections).toBe('on');
+    expect(data.collections[0]).toMatchObject({ name: 'Perbaikan jalan', amount: 50000, excluded: { agt_1: true }, closed: false });
+  });
+
+  it('melengkapi fitur yang tidak lengkap (satu sheet terhapus)', async () => {
+    const { repo, api, spreadsheetId, server } = await freshRepo();
+    await api.batchUpdate(spreadsheetId, [{ addSheet: { properties: { title: 'Patungan' } } }]);
+    expect((await repo.inspect()).features.collections).toBe('partial');
+    expect((await repo.load()).collections).toEqual([]); // tidak gagal, fitur dianggap mati
+    await repo.enableFeature('collections');
+    expect(server.dump(spreadsheetId, 'Setoran Patungan')[0][0]).toBe('ID');
+    expect((await repo.inspect()).features.collections).toBe('on');
+  });
+
+  it('sheet bernama sama tetapi strukturnya beda: ditolak, tidak ditimpa, dan buku tetap bisa dimuat', async () => {
+    const { repo, api, spreadsheetId, server } = await freshRepo();
+    await api.batchUpdate(spreadsheetId, [{ addSheet: { properties: { title: 'Patungan' } } }]);
+    await api.batchUpdateValues(spreadsheetId, [{ range: "'Patungan'!A1:B1", values: [['Kegiatan', 'Biaya']] }]);
+    expect((await repo.inspect()).features.collections).toBe('mismatched');
+    await expect(repo.enableFeature('collections')).rejects.toThrow(/"Patungan" sudah ada/);
+    expect(server.dump(spreadsheetId, 'Patungan')).toEqual([['Kegiatan', 'Biaya']]);
+    await expect(repo.load()).resolves.toMatchObject({ collections: [] });
+  });
+
+  it('load({ refresh }) mengenali fitur yang diaktifkan dari perangkat lain', async () => {
+    const { repo, api, spreadsheetId } = await freshRepo();
+    await repo.load();
+    const other = createRepository({ api, spreadsheetId, user: { email: ME } });
+    await other.enableFeature('collections');
+    expect((await repo.load()).features.collections).toBe('off'); // status tersimpan
+    expect((await repo.load({ refresh: true })).features.collections).toBe('on');
+  });
+
+  it('kantong patungan (ID ktp_) dipisah dari kantong utama', async () => {
+    const { repo } = await freshRepo();
+    await repo.add('accounts', [
+      { id: 'ktp_jalan', name: 'Patungan jalan', order: 1000, active: true },
+      { name: 'Kas RT', order: 1, active: true },
+    ]);
+    const data = await repo.load();
+    expect(data.accounts.map((a) => a.name)).toEqual(['Kas RT']);
+    expect(data.pockets.map((a) => a.id)).toEqual(['ktp_jalan']);
+  });
+});
+
 describe('akses & ketahanan', () => {
   it('akun tanpa izin mendapat 403 yang diterjemahkan jadi pesan ramah', async () => {
     const owner = setup();
@@ -232,6 +305,11 @@ describe('akses & ketahanan', () => {
     const err = await repo.add('members', [{ name: 'X' }]).catch((e) => e);
     expect(err.status).toBe(403);
     expect(friendlyMessage(err)).toMatch(/hanya punya akses baca/);
+
+    // mengaktifkan fitur juga butuh akses tulis; bukunya tetap bisa dibaca
+    const denied = await repo.enableFeature('collections').catch((e) => e);
+    expect(friendlyMessage(denied)).toMatch(/hanya punya akses baca/);
+    await expect(repo.load()).resolves.toMatchObject({ features: { collections: 'off' } });
   });
 
   it('spreadsheet yang tidak ada -> 404 dengan pesan ramah', async () => {

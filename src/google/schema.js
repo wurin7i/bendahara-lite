@@ -95,9 +95,50 @@ export const TABLES = {
       ...audit(),
     ],
   },
+
+  // Tabel fitur opsional: sheet-nya tidak dibuat saat buku baru, hanya saat fitur diaktifkan dari Pengaturan.
+  collections: {
+    sheet: 'Patungan',
+    prefix: 'ptg',
+    feature: 'collections',
+    columns: [
+      col('id', 'ID'),
+      col('name', 'Nama'),
+      col('kind', 'Jenis (tetap/sukarela)'),
+      col('amount', 'Besaran per Anggota', 'number'),
+      col('target', 'Target Dana', 'number'),
+      col('date', 'Tanggal', 'date'),
+      col('dueDate', 'Batas Waktu', 'date'),
+      col('accountId', 'ID Kantong'),
+      col('excluded', 'Tidak Ikut (JSON)', 'json'),
+      col('closed', 'Ditutup', 'bool'),
+      col('note', 'Catatan'),
+      col('deleted', 'Dihapus', 'bool'),
+      ...audit(),
+    ],
+  },
+  contributions: {
+    sheet: 'Setoran Patungan',
+    prefix: 'stp',
+    feature: 'collections',
+    columns: [
+      col('id', 'ID'),
+      col('collectionId', 'ID Patungan'),
+      col('memberId', 'ID Anggota'),
+      col('amount', 'Jumlah', 'number'),
+      col('date', 'Tanggal Setor', 'date'),
+      col('note', 'Catatan'),
+      col('deleted', 'Dihapus', 'bool'),
+      ...audit(),
+    ],
+  },
 };
 
 export const TABLE_KEYS = Object.keys(TABLES);
+/** Tabel yang selalu ada di setiap buku. */
+export const CORE_TABLE_KEYS = TABLE_KEYS.filter((k) => !TABLES[k].feature);
+/** Fitur opsional -> tabel-tabelnya. */
+export const FEATURES = { collections: TABLE_KEYS.filter((k) => TABLES[k].feature === 'collections') };
 
 /** 1 -> A, 26 -> Z, 27 -> AA */
 export function columnLetter(n) {
